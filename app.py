@@ -4,6 +4,7 @@ import pandas as pd
 import os
 
 app = Flask(__name__)
+app.secret_key = 'secret_key_here'
 
 
 DB_FILE = 'results.db'
