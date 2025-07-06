@@ -1,4 +1,5 @@
 Flask==2.3.3
-pandas==2.2.2
+numpy==1.26.4
+pandas==2.2.2 --only-binary :all:
 openpyxl==3.1.2
 gunicorn==23.0.0
