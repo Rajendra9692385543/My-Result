@@ -455,6 +455,6 @@ def calculate_gpa_from_grades(grades):
     return sum(points) / len(points) if points else 0
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
 
 
