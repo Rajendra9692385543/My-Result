@@ -1,88 +1,36 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
-import sqlite3
-import pandas as pd
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
 import os
+import pandas as pd
+from supabase import create_client, Client
 
+# ==========================
+# Supabase Config
+# ==========================
+SUPABASE_URL = "https://xsnktkaofijftripytij.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzbmt0a2FvZmlqZnRyaXB5dGlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2NDM2MDAsImV4cCI6MjA2ODIxOTYwMH0.NKo7WAeN7ssRg_5LceDABBaUJF-jAEjxBrCjKtoxvgg"
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ==========================
+# Flask Setup
+# ==========================
 app = Flask(__name__)
 app.secret_key = 'secret_key_here'
 
-
-DB_FILE = 'results.db'
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'xlsx'}
-
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-from flask import send_from_directory
-
+# ==========================
+# File Serving Route
+# ==========================
 @app.route('/uploads/<filename>')
 def serve_uploaded_file(filename):
     return send_from_directory('uploads', filename, as_attachment=True)
 
 # ==========================
-# DB INIT
-# ==========================
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-
-    # Main results table
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            reg_no TEXT,
-            name TEXT,
-            subject_code TEXT,
-            subject_name TEXT,
-            type TEXT,
-            credits TEXT,
-            grade TEXT,
-            semester TEXT,
-            school TEXT,
-            branch TEXT,
-            academic_year TEXT,
-            UNIQUE(reg_no, subject_code)
-        )
-    ''')
-
-    # Ensure columns exist if DB already created earlier
-    try:
-        cur.execute("ALTER TABLE results ADD COLUMN school TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cur.execute("ALTER TABLE results ADD COLUMN branch TEXT")
-    except sqlite3.OperationalError:
-        pass
-    try:
-        cur.execute("ALTER TABLE results ADD COLUMN academic_year TEXT")
-    except sqlite3.OperationalError:
-        pass
-
-    # Upload log table (no academic_year)
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS uploads (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT,
-            upload_type TEXT,
-            school TEXT,
-            branch TEXT,
-            semester TEXT,
-            academic_year TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    conn.commit()
-    conn.close()
-
-init_db()
-
-
-# ==========================
 # School Mapping
 # ==========================
-# Map of School to their respective Branches (move outside route)
 school_branch_map = {
     "School of Engineering and Technology": [
         "Computer Science and Engineering",
@@ -108,7 +56,7 @@ school_branch_map = {
 # Helpers
 # ==========================
 def calculate_grade_point(grade):
-    mapping = {'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5,'F': 0, 'S': 0}
+    mapping = {'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0}
     return mapping.get(grade.upper(), 0)
 
 def calculate_gpa(records):
@@ -130,6 +78,7 @@ def allowed_file(filename):
 # ==========================
 # Routes
 # ==========================
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -139,17 +88,13 @@ def result():
     reg_no = request.form['reg_no'].strip()
     semester = request.form['semester'].strip()
 
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-
     # Get current semester result
-    cur.execute("SELECT * FROM results WHERE reg_no = ? AND semester = ?", (reg_no, semester))
-    semester_records = cur.fetchall()
+    response = supabase.table("results").select("*").eq("reg_no", reg_no).eq("semester", semester).execute()
+    semester_records = response.data if response.data else []
 
     # Get all semesters for CGPA
-    cur.execute("SELECT * FROM results WHERE reg_no = ?", (reg_no,))
-    all_records = cur.fetchall()
+    response_all = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    all_records = response_all.data if response_all.data else []
 
     if not semester_records:
         return render_template('result.html', name="Not Found", reg_no=reg_no, semester=semester,
@@ -164,18 +109,21 @@ def result():
     sgpa = calculate_gpa(semester_records)
     cgpa = calculate_gpa(all_records)
 
-    # Prepare CGPA chart data across semesters
-    cur.execute("SELECT DISTINCT semester FROM results WHERE reg_no = ? ORDER BY semester", (reg_no,))
-    semesters = [row[0] for row in cur.fetchall()]
-    chart_data = []
+    # Get list of semesters
+    semesters_resp = supabase.table("results") \
+        .select("semester") \
+        .eq("reg_no", reg_no) \
+        .order("semester", desc=False) \
+        .execute()
 
+    semesters = list({row["semester"] for row in semesters_resp.data})
+
+    chart_data = []
     for sem in semesters:
-        cur.execute("SELECT * FROM results WHERE reg_no = ? AND semester = ?", (reg_no, sem))
-        rows = cur.fetchall()
+        response = supabase.table("results").select("*").eq("reg_no", reg_no).eq("semester", sem).execute()
+        rows = response.data
         gpa = calculate_gpa(rows)
         chart_data.append({"semester": sem, "cgpa": gpa})
-
-    conn.close()
 
     return render_template('result.html',
                            name=name,
@@ -245,13 +193,13 @@ def admin_dashboard():
     # Generate academic year options
     academic_years = generate_academic_years()
 
-    # Fetch uploaded file logs
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM uploads ORDER BY timestamp DESC")
-    uploads = cur.fetchall()
-    conn.close()
+    # ✅ Fetch uploads from Supabase
+    try:
+        response = supabase.table("uploads").select("*").order("timestamp", desc=True).execute()
+        uploads = response.data if response.data else []
+    except Exception as e:
+        uploads = []
+        flash(f"Error fetching uploads: {e}")
 
     return render_template("admin_dashboard.html",
                            message=None,
@@ -282,36 +230,86 @@ def upload_insert():
     df = pd.read_excel(filepath)
     df.fillna('', inplace=True)
 
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
+    errors = []
+
+    # ✅ Build list of (reg_no, subject_code) for entire sheet
+    keys = [
+        (str(row.get('Reg_No', '')).strip(), str(row.get('Subject_Code', '')).strip())
+        for _, row in df.iterrows()
+        if str(row.get('Reg_No', '')).strip() and str(row.get('Subject_Code', '')).strip()
+    ]
+
+    # ✅ Get all existing keys from Supabase in one query
+    try:
+        existing_resp = supabase.table("results").select("reg_no, subject_code").in_(
+            "reg_no", [k[0] for k in keys]
+        ).execute()
+
+        existing_keys = set(
+            (row['reg_no'], row['subject_code']) for row in existing_resp.data
+        )
+    except Exception as e:
+        flash(f"Failed to fetch existing records: {e}")
+        return redirect(url_for('admin_dashboard'))
+
+    # ✅ Prepare list of new rows to insert
+    new_rows = []
+    for _, row in df.iterrows():
+        reg_no = str(row.get('Reg_No', '')).strip()
+        subject_code = str(row.get('Subject_Code', '')).strip()
+
+        if not reg_no or not subject_code:
+            continue  # Skip invalid rows
+
+        if (reg_no, subject_code) in existing_keys:
+            continue  # Already exists
+
+        new_rows.append({
+            "reg_no": reg_no,
+            "name": str(row.get('Name', '')).strip(),
+            "subject_code": subject_code,
+            "subject_name": str(row.get('Subject_Name', '')).strip(),
+            "type": str(row.get('Type', '')).strip(),
+            "credits": str(row.get('Credits', '')).strip(),
+            "grade": str(row.get('Grade', '')).strip(),
+            "semester": semester,
+            "school": school,
+            "branch": branch,
+            "academic_year": academic_year
+        })
+
     inserted = 0
 
-    for _, row in df.iterrows():
-        reg_no = str(row['Reg_No']).strip()
-        name = str(row['Name']).strip()
-        subject_code = str(row['Subject_Code']).strip()
-        subject_name = str(row['Subject_Name']).strip()
-        type_ = str(row['Type']).strip()
-        credits = str(row['Credits']).strip()
-        grade = str(row['Grade']).strip()
+    # ✅ Insert in bulk if any new rows
+    if new_rows:
+        try:
+            insert_resp = supabase.table("results").insert(new_rows).execute()
+            inserted = len(new_rows)
+        except Exception as e:
+            errors.append(f"Insertion failed: {e}")
 
-        cur.execute("""
-            INSERT OR IGNORE INTO results 
-            (reg_no, name, subject_code, subject_name, type, credits, grade, semester, school, branch, academic_year)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (reg_no, name, subject_code, subject_name, type_, credits, grade, semester, school, branch, academic_year))
-        inserted += 1
+    # ✅ Log the upload
+    try:
+        supabase.table("uploads").insert({
+            "filename": filename,
+            "upload_type": "Sem Result",
+            "school": school,
+            "branch": branch,
+            "semester": semester,
+            "academic_year": academic_year
+        }).execute()
+    except Exception as e:
+        errors.append(f"Upload log failed: {e}")
 
-    # Log the file upload
-    cur.execute("""
-        INSERT INTO uploads (filename, upload_type, school, branch, semester, academic_year)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (filename, 'Sem Result', school, branch, semester, academic_year))
+    # ✅ Flash messages
+    if inserted:
+        flash(f"{inserted} rows inserted successfully.")
+    else:
+        flash("⚠️ No new records inserted.")
 
-    conn.commit()
-    conn.close()
+    if errors:
+        flash("Some errors occurred: " + "; ".join(errors))
 
-    flash(f"{inserted} rows inserted successfully.")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/upload_update', methods=['POST'])
@@ -331,47 +329,79 @@ def upload_update():
     df = pd.read_excel(filepath)
     df.fillna('', inplace=True)
 
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
     updated = 0
+    errors = []
 
     for _, row in df.iterrows():
-        reg_no = str(row['Reg_No']).strip()
-        subject_code = str(row['Subject_Code']).strip()
-        name = str(row['Name']).strip()
-        subject_name = str(row['Subject_Name']).strip()
-        type_ = str(row['Type']).strip()
-        credits = str(row['Credits']).strip()
-        grade = str(row['Grade']).strip()
+        try:
+            reg_no = str(row['Reg_No']).strip()
+            subject_code = str(row['Subject_Code']).strip()
+            name = str(row['Name']).strip()
+            subject_name = str(row['Subject_Name']).strip()
+            type_ = str(row['Type']).strip()
+            credits = str(row['Credits']).strip()
+            grade = str(row['Grade']).strip()
 
-        cur.execute("""
-            UPDATE results
-            SET name = ?, subject_name = ?, type = ?, credits = ?, grade = ?
-            WHERE reg_no = ? AND subject_code = ?
-        """, (name, subject_name, type_, credits, grade, reg_no, subject_code))
-        updated += 1
+            # Get the row to update
+            match_result = supabase.table("results").select("id").match({
+                "reg_no": reg_no,
+                "subject_code": subject_code
+            }).execute()
+
+            if match_result.data:
+                record_id = match_result.data[0]['id']
+                supabase.table("results").update({
+                    "name": name,
+                    "subject_name": subject_name,
+                    "type": type_,
+                    "credits": credits,
+                    "grade": grade
+                }).eq("id", record_id).execute()
+                updated += 1
+        except Exception as e:
+            errors.append(str(e))
 
     # Log the update
-    cur.execute("""
-        INSERT INTO uploads (filename, upload_type)
-        VALUES (?, 'EOD')
-    """, (filename,))
+    try:
+        supabase.table("uploads").insert({
+            "filename": filename,
+            "upload_type": "EOD"
+        }).execute()
+    except Exception as e:
+        errors.append(f"Upload log failed: {e}")
 
-    conn.commit()
-    conn.close()
+    if updated:
+        flash(f"{updated} rows updated successfully.")
+    else:
+        flash("No matching records were found to update.")
 
-    flash(f"{updated} rows updated successfully.")
+    if errors:
+        flash("Some errors occurred: " + "; ".join(errors))
+
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/get_semesters')
 def get_semesters():
     reg_no = request.args.get('reg_no', '').strip()
-    conn = sqlite3.connect(DB_FILE)
-    cur = conn.cursor()
-    cur.execute("SELECT DISTINCT semester FROM results WHERE reg_no = ?", (reg_no,))
-    semesters = [row[0] for row in cur.fetchall()]
-    conn.close()
-    return {'semesters': semesters}
+
+    try:
+        response = supabase.table("results") \
+            .select("semester") \
+            .eq("reg_no", reg_no) \
+            .execute()
+
+        # Extract distinct semesters
+        semesters = list({row['semester'] for row in response.data if row.get('semester')})
+
+        # Optional: sort semesters if needed
+        semesters.sort()
+
+        return {'semesters': semesters}
+
+    except Exception as e:
+        return {'error': str(e), 'semesters': []}
+
+from datetime import datetime
 
 @app.route('/topper', methods=['GET', 'POST'])
 def topper():
@@ -383,79 +413,79 @@ def topper():
         semester = request.form['semester']
         academic_year = request.form['academic_year']
 
-        conn = sqlite3.connect(DB_FILE)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
+        # Step 1: Fetch all unique students from Supabase
+        response = supabase.table("results") \
+            .select("reg_no, name, school, branch, semester, academic_year") \
+            .eq("school", school) \
+            .eq("branch", branch) \
+            .eq("semester", semester) \
+            .eq("academic_year", academic_year) \
+            .execute()
 
-        # Step 1: Get all students in that school, branch, semester, academic year
-        cur.execute("""
-            SELECT DISTINCT reg_no, name, school, branch, semester, academic_year
-            FROM results
-            WHERE school = ? AND branch = ? AND semester = ? AND academic_year = ?
-        """, (school, branch, semester, academic_year))
-
-        students = cur.fetchall()
+        students = response.data
         toppers = []
 
         for student in students:
             reg_no = student['reg_no']
 
-            # SGPA for this semester
-            cur.execute("""
-                SELECT grade FROM results 
-                WHERE reg_no = ? AND semester = ?
-            """, (reg_no, semester))
-            sgpa_grades = [row['grade'] for row in cur.fetchall()]
+            # Get SGPA: All grades for this reg_no & semester
+            sgpa_response = supabase.table("results") \
+                .select("grade") \
+                .eq("reg_no", reg_no) \
+                .eq("semester", semester) \
+                .execute()
+            sgpa_grades = [row['grade'] for row in sgpa_response.data]
 
+            # Get CGPA: All grades for this reg_no (all semesters)
+            cgpa_response = supabase.table("results") \
+                .select("grade") \
+                .eq("reg_no", reg_no) \
+                .execute()
+            cgpa_grades = [row['grade'] for row in cgpa_response.data]
+
+            # GPA Calculations
             sgpa = calculate_gpa_from_grades(sgpa_grades)
-
-            # CGPA for all semesters
-            cur.execute("""
-                SELECT grade FROM results 
-                WHERE reg_no = ?
-            """, (reg_no,))
-            cgpa_grades = [row['grade'] for row in cur.fetchall()]
-
             cgpa = calculate_gpa_from_grades(cgpa_grades)
 
             toppers.append({
-                "reg_no": student['reg_no'],
+                "reg_no": reg_no,
                 "name": student['name'],
                 "school": student['school'],
                 "branch": student['branch'],
-                "semester": student['semester'],
-                "academic_year": student['academic_year'],
+                "semester": semester,
+                "academic_year": academic_year,
                 "sgpa": round(sgpa, 2),
                 "cgpa": round(cgpa, 2)
             })
 
-        # Sort by SGPA descending, then CGPA descending
+        # Sort: first by SGPA (desc), then by CGPA (desc)
         toppers.sort(key=lambda x: (-x['sgpa'], -x['cgpa']))
 
-        # Limit to top 10
+        # Limit to Top 10
         toppers = toppers[:10]
 
-        conn.close()
-
-        return render_template("topper.html", 
-                               schoolBranchMap=school_branch_map, 
+        return render_template("topper.html",
+                               schoolBranchMap=school_branch_map,
                                academic_years=academic_years,
                                toppers=toppers,
                                form_data=request.form)
 
-    return render_template("topper.html", 
+    return render_template("topper.html",
                            schoolBranchMap=school_branch_map,
                            academic_years=academic_years,
                            toppers=None,
                            form_data={})
+
 def calculate_gpa_from_grades(grades):
     grade_map = {
-        'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0
+        'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0
     }
-    points = [grade_map.get(g, 0) for g in grades]
-    return sum(points) / len(points) if points else 0
+    points = []
+    for grade in grades:
+        grade = grade.strip().upper()
+        if grade in grade_map:
+            points.append(grade_map[grade])
+    return round(sum(points) / len(points), 2) if points else 0.0
 
 if __name__ == '__main__':
-    app.run()
-
-
+    app.run(debug=True)
