@@ -1,4 +1,4 @@
-## 🎓 MyResult – Student Result & Credit Tracker Portal
+# 🎓 MyResult – Student Result & Credit Tracker Portal
 An academic portal to view student results, track credit progress, and manage uploads via admin panel.
 
 # 🚀 Features
