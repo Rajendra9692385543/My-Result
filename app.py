@@ -29,7 +29,7 @@ def serve_uploaded_file(filename):
     return send_from_directory('uploads', filename, as_attachment=True)
 
 # ==========================
-# School Mapping
+# School → Branch Mapping
 # ==========================
 school_branch_map = {
     "School of Engineering and Technology": [
@@ -42,7 +42,9 @@ school_branch_map = {
         "Aerospace Engineering",
         "Bachelor of Computer Application (BCA)"
     ],
-    "M.S. Swaminathan School of Agriculture": ["Agronomy", "Horticulture", "Soil Science"],
+    "M.S. Swaminathan School of Agriculture": [
+        "Agronomy", "Horticulture", "Soil Science"
+    ],
     "School of Management": ["BBA", "MBA"],
     "School of Fisheries": ["Fisheries Science"],
     "School of Vocational Education and Training": ["Vocational Training"],
@@ -51,6 +53,22 @@ school_branch_map = {
     "School of Veterinary and Animal Sciences": ["Veterinary Science"],
     "School of Nursing": ["Nursing"]
 }
+
+# ==========================
+# School → Program Mapping
+# ==========================
+school_program_map = {
+    "School of Engineering and Technology": ["BTech", "BCA", "Diploma"],
+    "M.S. Swaminathan School of Agriculture": ["BSc AG"],
+    "School of Management": ["BBA", "MBA"],
+    "School of Fisheries": ["BSc Fisheries"],
+    "School of Vocational Education and Training": ["Diploma"],
+    "School of Applied Sciences": ["BSc"],
+    "School of Agriculture & Bio-Engineering": ["BTech Bio", "BSc Bio"],
+    "School of Veterinary and Animal Sciences": ["BVSc"],
+    "School of Nursing": ["BSc Nursing"]
+}
+
 
 # ==========================
 # Helpers
@@ -137,20 +155,289 @@ def result():
                            branch=branch,
                            academic_year=academic_year)
 
+from werkzeug.security import check_password_hash
+
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        username = request.form['username'].strip()
-        password = request.form['password'].strip()
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '').strip()
 
-        if username == 'admin' and password == 'admin123':
+        if not email or not password:
+            flash("❌ Email and password are required.")
+            return redirect(url_for('admin_login'))
+
+        try:
+            # Fetch admin data
+            result = supabase.table("admin_users").select("*").eq("email", email).execute()
+            admin_data = result.data
+
+            if not admin_data:
+                flash("⚠️ No admin found with that email.")
+                return redirect(url_for('admin_login'))
+
+            admin = admin_data[0]
+
+            # ✅ Compare password (plain text check or hashed check)
+            if password != admin['password']:
+                # Use check_password_hash(admin['password'], password) if hashed
+                flash("❌ Incorrect password.")
+                return redirect(url_for('admin_login'))
+
+            # ✅ Login success
             session['admin'] = True
-            return redirect(url_for('admin_dashboard'))  # ✅ Redirect to dashboard after success
+            session['admin_email'] = email
+            session['admin_role'] = admin.get('role', 'admin')
 
-        return render_template('admin_login.html', error="Oops! Wrong username or password.")
+            flash("✅ Login successful!")
+            return redirect(url_for('admin_dashboard'))
 
-    return render_template('admin_login.html')
+        except Exception as e:
+            flash(f"❌ Login failed: {e}")
+            return redirect(url_for('admin_login'))
 
+    return render_template("admin_login_password.html")
+
+from werkzeug.security import generate_password_hash
+
+@app.route('/admin/manage-admins', methods=['GET', 'POST'])
+def manage_admins():
+    if 'admin' not in session:
+        return redirect(url_for('admin_login'))
+
+    # Add new admin (POST)
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip().lower()
+        phone = request.form.get('phone', '').strip()
+        password = request.form.get('password', '').strip()
+
+        if not email or not password:
+            flash("⚠️ Email and password are required.")
+            return redirect(url_for('manage_admins'))
+
+        try:
+            # Check if admin already exists
+            exists = supabase.table("admin_users").select("email").eq("email", email).execute()
+            if exists.data:
+                flash("⚠️ This email is already an admin.")
+            else:
+                hashed_password = generate_password_hash(password)
+                supabase.table("admin_users").insert({
+                    "name": name,
+                    "email": email,
+                    "phone": phone,
+                    "password": hashed_password
+                }).execute()
+                flash(f"✅ Admin '{email}' added successfully.")
+        except Exception as e:
+            flash(f"❌ Failed to add admin: {e}")
+
+        return redirect(url_for('manage_admins'))
+
+    # Display all admins (GET)
+    try:
+        admins = supabase.table("admin_users") \
+                         .select("*") \
+                         .order("created_at", desc=True) \
+                         .execute().data
+    except Exception as e:
+        admins = []
+        flash(f"❌ Failed to fetch admins: {e}")
+
+    return render_template("manage_admins.html", admins=admins)
+
+from datetime import datetime
+
+@app.route('/admin/add-admin', methods=['POST'])
+def add_admin():
+    if 'admin' not in session or session.get('admin_role') != 'superadmin':
+        flash("Only superadmins can add new admins.")
+        return redirect(url_for('admin_dashboard'))
+
+    name = request.form.get('name', '').strip()
+    email = request.form.get('email', '').strip().lower()
+    phone = request.form.get('phone', '').strip()
+    password = request.form.get('password', '').strip()  # Optional if you want password too
+
+    if not email or not password:
+        flash("⚠️ Email and Password are required.")
+        return redirect(url_for('manage_admins'))
+
+    try:
+        existing = supabase.table("admin_users").select("email").eq("email", email).execute()
+        if existing.data:
+            flash("⚠️ This email is already an admin.")
+        else:
+            supabase.table("admin_users").insert({
+                "name": name,
+                "email": email,
+                "phone": phone,
+                "password": password,
+                "role": "admin",
+                "created_at": datetime.utcnow().isoformat()  # Ensures created_at is filled
+            }).execute()
+            flash(f"✅ Admin '{email}' added.")
+    except Exception as e:
+        flash(f"❌ Failed to add admin: {e}")
+
+    return redirect(url_for('manage_admins'))
+
+@app.route('/admin/delete-admin', methods=['POST'])
+def delete_admin():
+    if 'admin' not in session or session.get('admin_role') != 'superadmin':
+        flash("Only superadmins can delete admins.")
+        return redirect(url_for('admin_dashboard'))
+
+    email = request.form.get('email')
+    if not email:
+        flash("⚠️ Email is required.")
+        return redirect(url_for('manage_admins'))
+
+    try:
+        supabase.table("admin_users").delete().eq("email", email).execute()
+        flash(f"✅ Admin '{email}' deleted.")
+    except Exception as e:
+        flash(f"❌ Failed to delete admin: {e}")
+
+    return redirect(url_for('manage_admins'))
+
+#===========================
+#Manage Basket Subjects
+#===========================
+@app.route('/admin/manage-basket', methods=['GET'])
+def manage_basket():
+    if 'admin' not in session:
+        return redirect(url_for('admin_login'))
+
+    # Load existing subjects
+    try:
+        subjects = supabase.table("cbcs_basket").select("*").order("subject_code").execute().data
+    except Exception as e:
+        subjects = []
+        flash(f"❌ Failed to load subjects: {e}")
+
+    return render_template("manage_basket.html", subjects=subjects)
+
+@app.route('/admin/add-subject', methods=['POST'])
+def add_subject():
+    if 'admin' not in session:
+        return redirect(url_for('admin_login'))
+
+    data = {
+        "subject_code": request.form.get("subject_code", "").strip().upper(),
+        "subject_name": request.form.get("subject_name", "").strip(),
+        "credits": float(request.form.get("credits", 0)),
+        "basket": request.form.get("basket", "").strip(),
+        "program": request.form.get("program", "").strip(),
+        "branch": request.form.get("branch", "").strip()
+    }
+
+    if not data["subject_code"]:
+        flash("Subject Code is required.")
+        return redirect(url_for('manage_basket'))
+
+    try:
+        # Check if subject already exists
+        exists = supabase.table("cbcs_basket").select("id").eq("subject_code", data["subject_code"]).execute()
+        if exists.data:
+            flash("⚠️ Subject already exists. Use update form to modify.")
+        else:
+            supabase.table("cbcs_basket").insert(data).execute()
+            flash(f"✅ Subject '{data['subject_code']}' added.")
+    except Exception as e:
+        flash(f"❌ Failed to add subject: {e}")
+
+    return redirect(url_for('manage_basket'))
+
+@app.route('/admin/update-subject', methods=['POST'])
+def update_subject():
+    if 'admin' not in session:
+        return redirect(url_for('admin_login'))
+
+    subject_code = request.form.get("subject_code", "").strip().upper()
+    if not subject_code:
+        flash("Subject code is required for update.")
+        return redirect(url_for('manage_basket'))
+
+    updates = {}
+    if request.form.get("subject_name"):
+        updates["subject_name"] = request.form["subject_name"].strip()
+    if request.form.get("credits"):
+        try:
+            updates["credits"] = float(request.form["credits"])
+        except:
+            flash("Invalid credits.")
+            return redirect(url_for('manage_basket'))
+    if request.form.get("basket"):
+        updates["basket"] = request.form["basket"].strip()
+
+    if not updates:
+        flash("No updates provided.")
+        return redirect(url_for('manage_basket'))
+
+    try:
+        exists = supabase.table("cbcs_basket").select("id").eq("subject_code", subject_code).execute()
+        if not exists.data:
+            flash("❌ Subject not found.")
+        else:
+            subject_id = exists.data[0]["id"]
+            supabase.table("cbcs_basket").update(updates).eq("id", subject_id).execute()
+            flash(f"✅ Subject '{subject_code}' updated.")
+    except Exception as e:
+        flash(f"❌ Failed to update subject: {e}")
+
+    return redirect(url_for('manage_basket'))
+
+import pandas as pd
+
+@app.route('/admin/upload-subjects', methods=['POST'])
+def upload_subjects():
+    if 'admin' not in session:
+        return redirect(url_for('admin_login'))
+
+    file = request.files.get("file")
+    if not file or not file.filename.endswith(".xlsx"):
+        flash("Please upload a valid .xlsx file.")
+        return redirect(url_for('manage_basket'))
+
+    try:
+        df = pd.read_excel(file)
+        df.fillna('', inplace=True)
+
+        subjects = []
+        for _, row in df.iterrows():
+            subject_code = str(row.get("subject_code", "")).strip().upper()
+            if not subject_code:
+                continue
+
+            subjects.append({
+                "subject_code": subject_code,
+                "subject_name": str(row.get("subject_name", "")).strip(),
+                "credits": float(row.get("credits", 0)),
+                "basket": str(row.get("basket", "")).strip(),
+                "program": str(row.get("program", "")).strip(),
+                "branch": str(row.get("branch", "")).strip()
+            })
+
+        if subjects:
+            supabase.table("cbcs_basket").insert(subjects).execute()
+            flash(f"✅ {len(subjects)} subjects uploaded.")
+        else:
+            flash("⚠️ No valid subjects found in file.")
+
+    except Exception as e:
+        flash(f"❌ Upload failed: {e}")
+
+    return redirect(url_for('manage_basket'))
+
+@app.route('/admin/logout')
+def admin_logout():
+    session.pop('admin', None)
+    session.pop('admin_email', None)
+    session.pop('admin_role', None)
+    flash("You have been logged out.")
+    return redirect(url_for('admin_login'))
 
 from datetime import datetime
 
@@ -166,7 +453,9 @@ def admin_dashboard():
     if 'admin' not in session:
         return redirect(url_for('admin_login'))
 
-    # School and Branch Mapping
+    # ==========================
+    # School → Branch Mapping
+    # ==========================
     school_branch_map = {
         "School of Engineering and Technology": [
             "Computer Science and Engineering",
@@ -190,10 +479,25 @@ def admin_dashboard():
         "School of Nursing": ["Nursing"]
     }
 
-    # Generate academic year options
+    # ==========================
+    # School → Program Mapping
+    # ==========================
+    school_program_map = {
+        "School of Engineering and Technology": ["BTech", "BCA", "Diploma"],
+        "M.S. Swaminathan School of Agriculture": ["BSc AG"],
+        "School of Management": ["BBA", "MBA"],
+        "School of Fisheries": ["BSc Fisheries"],
+        "School of Vocational Education and Training": ["Diploma"],
+        "School of Applied Sciences": ["BSc"],
+        "School of Agriculture & Bio-Engineering": ["BTech Bio", "BSc Bio"],
+        "School of Veterinary and Animal Sciences": ["BVSc"],
+        "School of Nursing": ["BSc Nursing"]
+    }
+
+    # ✅ Academic years list
     academic_years = generate_academic_years()
 
-    # ✅ Fetch uploads from Supabase
+    # ✅ Fetch uploaded result file records
     try:
         response = supabase.table("uploads").select("*").order("timestamp", desc=True).execute()
         uploads = response.data if response.data else []
@@ -201,11 +505,15 @@ def admin_dashboard():
         uploads = []
         flash(f"Error fetching uploads: {e}")
 
-    return render_template("admin_dashboard.html",
-                           message=None,
-                           schoolBranchMap=school_branch_map,
-                           uploads=uploads,
-                           academic_years=academic_years)
+    return render_template(
+        "admin_dashboard.html",
+        message=None,
+        schoolBranchMap=school_branch_map,
+        schoolProgramMap=school_program_map,
+        uploads=uploads,
+        academic_years=academic_years
+    )
+
 
 @app.route('/admin/upload_insert', methods=['POST'])
 def upload_insert():
@@ -217,6 +525,7 @@ def upload_insert():
     branch = request.form.get('branch')
     semester = request.form.get('semester')
     academic_year = request.form.get('academic_year')
+    program = request.form.get('program')  # 🆕 Extract program
 
     if not file or not allowed_file(file.filename):
         return render_template("admin_dashboard.html",
@@ -239,7 +548,7 @@ def upload_insert():
         if str(row.get('Reg_No', '')).strip() and str(row.get('Subject_Code', '')).strip()
     ]
 
-    # ✅ Get all existing keys from Supabase in one query
+    # ✅ Fetch existing keys in one call
     try:
         existing_resp = supabase.table("results").select("reg_no, subject_code").in_(
             "reg_no", [k[0] for k in keys]
@@ -252,17 +561,17 @@ def upload_insert():
         flash(f"Failed to fetch existing records: {e}")
         return redirect(url_for('admin_dashboard'))
 
-    # ✅ Prepare list of new rows to insert
+    # ✅ Prepare list of new rows
     new_rows = []
     for _, row in df.iterrows():
         reg_no = str(row.get('Reg_No', '')).strip()
         subject_code = str(row.get('Subject_Code', '')).strip()
 
         if not reg_no or not subject_code:
-            continue  # Skip invalid rows
+            continue
 
         if (reg_no, subject_code) in existing_keys:
-            continue  # Already exists
+            continue  # skip duplicates
 
         new_rows.append({
             "reg_no": reg_no,
@@ -275,12 +584,13 @@ def upload_insert():
             "semester": semester,
             "school": school,
             "branch": branch,
-            "academic_year": academic_year
+            "academic_year": academic_year,
+            "program": program  # 🆕 Added here
         })
 
     inserted = 0
 
-    # ✅ Insert in bulk if any new rows
+    # ✅ Bulk insert
     if new_rows:
         try:
             insert_resp = supabase.table("results").insert(new_rows).execute()
@@ -296,12 +606,13 @@ def upload_insert():
             "school": school,
             "branch": branch,
             "semester": semester,
-            "academic_year": academic_year
+            "academic_year": academic_year,
+            "program": program  # 🆕 Log program as well
         }).execute()
     except Exception as e:
         errors.append(f"Upload log failed: {e}")
 
-    # ✅ Flash messages
+    # ✅ Flash results
     if inserted:
         flash(f"{inserted} rows inserted successfully.")
     else:
@@ -311,6 +622,7 @@ def upload_insert():
         flash("Some errors occurred: " + "; ".join(errors))
 
     return redirect(url_for('admin_dashboard'))
+
 
 @app.route('/admin/upload_update', methods=['POST'])
 def upload_update():
@@ -486,6 +798,224 @@ def calculate_gpa_from_grades(grades):
         if grade in grade_map:
             points.append(grade_map[grade])
     return round(sum(points) / len(points), 2) if points else 0.0
+
+# ==========================
+
+# Credit Tracker Logic and Routes
+
+@app.route('/credit-tracker')
+def credit_tracker_home():
+    return render_template('credit_form.html')
+
+@app.route('/view-credits')
+def view_credits():
+    reg_no = request.args.get('reg_no', '').strip()
+    if not reg_no:
+        return redirect(url_for('credit_tracker_home'))
+
+    # Fetch all records of the student
+    response = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    all_results = response.data
+
+    if not all_results:
+        return render_template("credit_view.html", student=None)
+
+    # Prepare student profile
+    student = {
+        "name": all_results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "program": all_results[0].get("program", "-"),
+        "school": all_results[0].get("school", "-"),
+        "branch": all_results[0].get("branch", "-"),
+        "batch": all_results[0].get("batch", "-"),
+        "semester": all_results[-1].get("semester", "-"),
+        "cgpa": "-",  # Optional: Calculate if needed
+    }
+
+    semester_map = {}
+    cleared_credits = 0
+    backlog_credits = 0
+    backlogs = []
+
+    for record in all_results:
+        sem = record.get("semester", "Unknown")
+        grade = record.get("grade", "").strip().upper()
+        credit_str = record.get("credits", "0").strip()
+
+        # Safely parse credits (e.g., handle "3+1")
+        try:
+            credits = sum(float(x) for x in credit_str.split('+'))
+        except:
+            credits = 0.0
+
+        if sem not in semester_map:
+            semester_map[sem] = {
+                "semester": sem,
+                "subjects": [],
+                "total_credits": 0,
+                "cleared_credits": 0,
+                "backlog_credits": 0
+            }
+
+        semester_map[sem]["subjects"].append(record)
+        semester_map[sem]["total_credits"] += credits
+
+        if grade in ["F", "S"]:
+            semester_map[sem]["backlog_credits"] += credits
+            backlog_credits += credits
+            backlogs.append(record)
+        else:
+            semester_map[sem]["cleared_credits"] += credits
+            cleared_credits += credits
+
+    # Final metrics
+    required_credits = 160
+    completion_percentage = round((cleared_credits / required_credits) * 100, 2)
+
+    return render_template(
+        "credit_view.html",
+        student=student,
+        semester_data=list(semester_map.values()),
+        credits_completed=cleared_credits,
+        total_credits_required=required_credits,
+        completion_percentage=completion_percentage,
+        backlogs=backlogs,
+        backlog_credits=backlog_credits
+    )
+
+# Basket Summary Logic and Route
+
+@app.route('/view-basket-subjects')
+def view_basket_subjects():
+    reg_no = request.args.get('reg_no', '').strip()
+    if not reg_no:
+        return redirect(url_for('credit_tracker_home'))
+
+    # Fetch student results
+    results_resp = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    results = results_resp.data
+
+    if not results:
+        return render_template("basket_subjects.html", student=None)
+
+    # Extract student info
+    student = {
+        "name": results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "school": results[0].get("school", "-"),
+        "branch": results[0].get("branch", "-"),
+        "program": results[0].get("program", "-"),
+        "batch": results[0].get("batch", "-")
+    }
+
+    # Use fallback defaults if fields missing
+    program = student["program"] if student["program"] and student["program"] != "-" else "BTech"
+    branch = student["branch"] if student["branch"] and student["branch"] != "-" else "All"
+
+    # Basket requirement mapping
+    BASKET_CREDIT_REQUIREMENTS = {
+        "BTech": {
+            "Basket I": 18,
+            "Basket II": 18,
+            "Basket III": 24,
+            "Basket IV": 80,
+            "Basket V": 20,
+            "Total": 160
+        },
+        "BTech Honours": {
+            "Basket I": 18,
+            "Basket II": 18,
+            "Basket III": 24,
+            "Basket IV": 80,
+            "Basket V": 40,
+            "Total": 180
+        },
+        "BBA": {
+            "Basket I": 10,
+            "Basket II": 10,
+            "Basket III": 20,
+            "Basket IV": 60,
+            "Basket V": 20,
+            "Total": 120
+        },
+        "BSc Ag": {
+            "Basket I": 18,
+            "Basket II": 18,
+            "Basket III": 20,
+            "Basket IV": 96,
+            "Basket V": 20,
+            "Total": 172
+        }
+    }
+
+    # Get credit requirement for the student's program
+    basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
+
+    # Fetch CBCS basket mappings (based on program & branch)
+    cbcs_resp = supabase.table("cbcs_basket").select("*").or_(
+        f"and(program.eq.{program},branch.eq.All),and(program.eq.{program},branch.eq.{branch})"
+    ).execute()
+
+    cbcs_map = cbcs_resp.data
+
+    # subject_code → basket mapping
+    subject_basket_map = {}
+    for row in cbcs_map:
+        subject_code = row.get("subject_code")
+        if subject_code:
+            subject_basket_map[subject_code] = {
+                "basket": row.get("basket"),
+                "credits": float(row.get("credits", 0)),
+                "subject_name": row.get("subject_name", "")
+            }
+
+    # Group into baskets
+    baskets = {}
+
+    for row in results:
+        sub_code = row['subject_code']
+        grade = row.get('grade', '').strip().upper()
+
+        if sub_code not in subject_basket_map:
+            continue
+
+        info = subject_basket_map[sub_code]
+        basket = info['basket']
+        credit = info['credits']
+        sub_name = row.get("subject_name") or info['subject_name']
+
+        if basket not in baskets:
+            baskets[basket] = {
+                "completed": [],
+                "backlogs": [],
+                "total_credits": basket_requirements.get(basket, 0),  # From mapping
+                "cleared_credits": 0,
+                "backlog_credits": 0
+            }
+
+        sub_data = {
+            "subject_code": sub_code,
+            "subject_name": sub_name,
+            "credits": credit,
+            "grade": grade,
+            "semester": row.get("semester", "-")
+        }
+
+        if grade in ['F', 'S']:
+            baskets[basket]["backlogs"].append(sub_data)
+            baskets[basket]["backlog_credits"] += credit
+        else:
+            baskets[basket]["completed"].append(sub_data)
+            baskets[basket]["cleared_credits"] += credit
+
+    return render_template(
+        "basket_subjects.html",
+        student=student,
+        basket_data=baskets,
+        basket_requirements=basket_requirements
+    )
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)

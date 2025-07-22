@@ -13,16 +13,37 @@
 <body>
 <div class="container mt-4">
 
-    <!-- Top Title and Home Button -->
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Admin Dashboard</h2>
+    <!-- Top Title and Navigation Buttons -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h2 class="mb-0">Admin Dashboard</h2>
+    <div class="d-flex gap-2">
+        <!-- Home Button -->
         <a href="/" class="btn btn-outline-primary">
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
                  class="bi bi-house-door" viewBox="0 0 16 16">
                 <path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6.5 6.5A.5.5 0 0 0 1.5 8H2v6a1 1 0 0 0 1 1h4a.5.5 0 0 0 .5-.5V10h2v4.5a.5.5 0 0 0 .5.5h4a1 1 0 0 0 1-1V8h.5a.5.5 0 0 0 .354-.854l-6.5-6.5z"/>
             </svg> Home
         </a>
+
+        <!-- Manage Admins Button -->
+        <a href="{{ url_for('manage_admins') }}" class="btn btn-outline-secondary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                 class="bi bi-shield-lock" viewBox="0 0 16 16">
+                <path d="M5.5 9a1.5 1.5 0 0 1 3 0v1h-3V9z"/>
+                <path d="M8 0c-.69 0-1.342.07-1.956.199a1.007 1.007 0 0 0-.798.992c0 1.105-.462 2.126-1.197 2.874C2.972 4.85 2 6.486 2 8c0 2.837 2.5 5.292 5.993 5.999A.5.5 0 0 0 8 14h.007C11.5 13.292 14 10.837 14 8c0-1.514-.972-3.15-2.05-3.935a4.876 4.876 0 0 1-1.197-2.874.997.997 0 0 0-.798-.992A7.978 7.978 0 0 0 8 0z"/>
+            </svg> Manage Admins
+        </a>
+
+        <!-- Manage Basket Subjects Button -->
+        <a href="{{ url_for('manage_basket') }}" class="btn btn-outline-dark">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                 class="bi bi-journal-bookmark" viewBox="0 0 16 16">
+                <path fill-rule="evenodd" d="M6 8V1h4v7l-2-1-2 1z"/>
+                <path d="M2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V2H2zm1 1h10v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3z"/>
+            </svg> Manage Basket Subjects
+        </a>
     </div>
+</div>
 
     <!-- Flash Message -->
     {% with messages = get_flashed_messages() %}
@@ -50,49 +71,56 @@
     </div>
 
     <!-- Insert New Sem Results -->
-    <div class="card shadow-sm">
-        <div class="card-header bg-success text-white fw-bold">Update Semester Results</div>
-        <div class="card-body">
-            <form action="/admin/upload_insert" method="POST" enctype="multipart/form-data">
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <label class="form-label">School</label>
-                        <select id="school" name="school" class="form-select" required>
-                            <option value="">-- Select School --</option>
-                            {% for school in schoolBranchMap.keys() %}
-                                <option value="{{ school }}">{{ school }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Branch</label>
-                        <select id="branch" name="branch" class="form-select" required>
-                            <option value="">-- Select Branch --</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Semester</label>
-                        <select id="semester" name="semester" class="form-select" required>
-                            <option value="">-- Select Semester --</option>
-                        </select>
-                    </div>
+<div class="card shadow-sm">
+    <div class="card-header bg-success text-white fw-bold">Update Semester Results</div>
+    <div class="card-body">
+        <form action="/admin/upload_insert" method="POST" enctype="multipart/form-data">
+            <div class="row mb-3">
+                <div class="col-md-3">
+                    <label class="form-label">School</label>
+                    <select id="school" name="school" class="form-select" required>
+                        <option value="">-- Select School --</option>
+                        {% for school in schoolBranchMap.keys() %}
+                            <option value="{{ school }}">{{ school }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-                <div class="row mb-3">
-                    <div class="col-md-4">
-                        <label class="form-label">Academic Year</label>
-                        <select id="academic_year" name="academic_year" class="form-select" required>
-                            <option value="">-- Select Academic Year --</option>
-                        </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Select File (.xlsx)</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx" required>
-                    </div>
+                <div class="col-md-3">
+                    <label class="form-label">Branch</label>
+                    <select id="branch" name="branch" class="form-select" required>
+                        <option value="">-- Select Branch --</option>
+                    </select>
                 </div>
-                <button type="submit" class="btn btn-success">Upload Sem Result</button>
-            </form>
-        </div>
+                <div class="col-md-3">
+                    <label class="form-label">Program</label>
+                    <select id="program" name="program" class="form-select" required>
+                        <option value="">-- Select Program --</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Semester</label>
+                    <select id="semester" name="semester" class="form-select" required>
+                        <option value="">-- Select Semester --</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">Academic Year</label>
+                    <select id="academic_year" name="academic_year" class="form-select" required>
+                        <option value="">-- Select Academic Year --</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Select File (.xlsx)</label>
+                    <input type="file" name="file" class="form-control" accept=".xlsx" required>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-success">Upload Sem Result</button>
+        </form>
     </div>
+</div>
+
 
     <!-- Uploaded Files Table -->
     <div class="card mt-4 shadow-sm">
@@ -143,16 +171,20 @@
 <!-- JS for dynamic dropdowns -->
 <script>
     const schoolBranchMap = {{ schoolBranchMap | tojson }};
+    const schoolProgramMap = {{ schoolProgramMap | tojson }};
+
     const schoolSelect = document.getElementById('school');
     const branchSelect = document.getElementById('branch');
+    const programSelect = document.getElementById('program');
     const semesterSelect = document.getElementById('semester');
     const academicYearSelect = document.getElementById('academic_year');
 
+    // 🏫 When school changes, populate branches and programs
     schoolSelect.addEventListener('change', function () {
         const selectedSchool = this.value;
-        branchSelect.innerHTML = '<option value="">-- Select Branch --</option>';
-        semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
 
+        // Update Branches
+        branchSelect.innerHTML = '<option value="">-- Select Branch --</option>';
         if (schoolBranchMap[selectedSchool]) {
             schoolBranchMap[selectedSchool].forEach(branch => {
                 const option = document.createElement('option');
@@ -161,22 +193,46 @@
                 branchSelect.appendChild(option);
             });
         }
+
+        // Update Programs
+        programSelect.innerHTML = '<option value="">-- Select Program --</option>';
+        if (schoolProgramMap[selectedSchool]) {
+            schoolProgramMap[selectedSchool].forEach(program => {
+                const option = document.createElement('option');
+                option.value = program;
+                option.textContent = program;
+                programSelect.appendChild(option);
+            });
+        }
+
+        // Reset Semester
+        semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
     });
 
-    branchSelect.addEventListener('change', function () {
-        const branch = this.value;
+    // 🧑‍🎓 When branch or program changes, update semester
+    function updateSemesterDropdown(program) {
         semesterSelect.innerHTML = '<option value="">-- Select Semester --</option>';
-        const maxSemester = branch.includes("BCA") ? 6 : 8;
-
+        const maxSemester = ['BBA', 'BCA'].includes(program) ? 6 : 8;
         for (let i = 1; i <= maxSemester; i++) {
             const option = document.createElement('option');
             option.value = i;
             option.textContent = i;
             semesterSelect.appendChild(option);
         }
+    }
+
+    programSelect.addEventListener('change', function () {
+        updateSemesterDropdown(this.value);
     });
 
-    // Auto populate Academic Year dropdown
+    branchSelect.addEventListener('change', function () {
+        const selectedProgram = programSelect.value;
+        if (selectedProgram) {
+            updateSemesterDropdown(selectedProgram);
+        }
+    });
+
+    // 📅 Populate academic year
     const startYear = 2020;
     const currentYear = new Date().getFullYear();
     for (let y = startYear; y <= currentYear; y++) {

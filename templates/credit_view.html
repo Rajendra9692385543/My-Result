@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Credit Report</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .gradient-card {
+            background: linear-gradient(to right, #f8f9fa, #e3f2fd);
+            border-left: 5px solid #0d6efd;
+        }
+        .rounded-shadow {
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+        .chart-container {
+            max-width: 400px;
+            margin: auto;
+        }
+    </style>
+</head>
+<body class="bg-light">
+
+<!-- Student Info -->
+<div class="card gradient-card p-4 mb-4 rounded-shadow shadow-sm">
+    <h5 class="mb-3">🎓 Student Details</h5>
+    <div class="row">
+        <div class="col-md-6">
+            <p><strong>Name:</strong> {{ student.name }}</p>
+            <p><strong>Registration No:</strong> {{ student.reg_no }}</p>
+            <p><strong>School:</strong> {{ student.school }}</p>
+            <p><strong>Branch:</strong> {{ student.branch }}</p>
+        </div>
+        <div class="col-md-6">
+            <p><strong>Program:</strong> {{ student.program }}</p>
+            <p><strong>Batch:</strong> {{ student.batch }}</p>
+            <p><strong>Latest Semester:</strong> {{ student.semester }}</p> 
+            <p><strong>CGPA:</strong> {{ student.cgpa }}</p> 
+        </div>
+    </div>
+</div>
+<a href="{{ url_for('view_basket_subjects', reg_no=student.reg_no) }}" class="btn btn-primary mt-2">📋 View Basket Summary</a>
+
+<!-- Credit Summary -->
+<div class="card p-4 mb-4 shadow-sm">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">📊 Credit Summary</h5>
+        <button class="btn btn-outline-primary btn-sm" onclick="toggleChart('summary')">📊 Toggle View</button>
+    </div>
+
+    <!-- Table View -->
+    <div id="table-summary">
+        <div class="row">
+            <div class="col-md-4">
+                <p><strong>Total Credits Required:</strong> {{ total_credits_required }}</p>
+                <p><strong>Credits Completed:</strong> {{ credits_completed }}</p>
+                <p><strong>Remaining Credits:</strong> {{ total_credits_required - credits_completed }}</p>
+            </div>
+            <div class="col-md-8 d-flex align-items-center">
+                <div class="w-100">
+                    <p class="mb-1"><strong>Progress:</strong> {{ completion_percentage }}%</p>
+                    <div class="progress" style="height: 25px;">
+                        <div class="progress-bar bg-success" role="progressbar"
+                             style="width: {{ completion_percentage }}%;"
+                             aria-valuenow="{{ completion_percentage }}" aria-valuemin="0" aria-valuemax="100">
+                            {{ completion_percentage }}%
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart View -->
+    <div id="chart-summary" style="display: none;" class="chart-container mt-3">
+        <canvas id="pieChart-summary" style="height: 200px;"></canvas>
+    </div>
+</div>
+
+<!-- Semester Cards -->
+{% for sem in semester_data %}
+<div class="card mb-4 shadow-sm">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">📘 Semester {{ sem.semester }}</h5>
+        <button class="btn btn-outline-primary btn-sm" onclick="toggleChart('{{ sem.semester }}')">📊 Toggle View</button>
+    </div>
+    <div class="card-body">
+
+        <!-- Table View -->
+        <div id="table-{{ sem.semester }}">
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Subject Code</th>
+                            <th>Subject Name</th>
+                            <th>Type</th>
+                            <th>Grade</th>
+                            <th>Credits</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for sub in sem.subjects %}
+                        <tr class="{% if sub.grade in ['F', 'S'] %}table-danger{% endif %}">
+                            <td>{{ sub.subject_code }}</td>
+                            <td>{{ sub.subject_name }}</td>
+                            <td>{{ sub.type }}</td>
+                            <td>{{ sub.grade }}</td>
+                            <td>{{ sub.credits }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p><strong>Total Credits:</strong> <span class="total-credits">{{ sem.total_credits }}</span></p>
+            <p><strong>Credits Cleared:</strong> <span class="cleared">{{ sem.cleared_credits }}</span></p>
+            <p><strong>Backlog Credits:</strong> <span class="backlog">{{ sem.backlog_credits }}</span></p>
+        </div>
+
+        <!-- Chart View -->
+        <div id="chart-{{ sem.semester }}" style="display: none;" class="chart-container mt-3">
+            <canvas id="pieChart-{{ sem.semester }}" style="height: 200px;"></canvas>
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Backlog Section -->
+{% if backlogs %}
+<hr class="my-5">
+<div class="card shadow-sm border-danger">
+    <div class="card-header bg-danger text-white">
+        <h5 class="mb-0">🔴 Backlog Subjects</h5>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm">
+                <thead class="table-light">
+                    <tr>
+                        <th>Subject Code</th>
+                        <th>Subject Name</th>
+                        <th>Semester</th>
+                        <th>Grade</th>
+                        <th>Credits</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sub in backlogs %}
+                    <tr>
+                        <td>{{ sub.subject_code }}</td>
+                        <td>{{ sub.subject_name }}</td>
+                        <td>{{ sub.semester }}</td>
+                        <td class="text-danger fw-bold">{{ sub.grade }}</td>
+                        <td>{{ sub.credits }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="mt-3 fw-bold text-danger">Total Backlog Credits: {{ backlog_credits }}</p>
+    </div>
+</div>
+{% endif %}
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+function toggleChart(sem) {
+    const table = document.getElementById(`table-${sem}`);
+    const chart = document.getElementById(`chart-${sem}`);
+
+    const showChart = chart.style.display === 'none';
+    table.style.display = showChart ? 'none' : 'block';
+    chart.style.display = showChart ? 'block' : 'none';
+
+    if (showChart && !chart.dataset.loaded) {
+        renderPieChart(sem);
+        chart.dataset.loaded = true;
+    }
+}
+
+function renderPieChart(sem) {
+    const chartId = `pieChart-${sem}`;
+    const canvas = document.getElementById(chartId);
+    const ctx = canvas.getContext('2d');
+
+    let cleared = 0, backlog = 0, pending = 0;
+
+    if (sem === 'summary') {
+        cleared = parseFloat({{ credits_completed }});
+        backlog = parseFloat({{ backlog_credits }});
+        const required = parseFloat({{ total_credits_required }});
+        pending = required - cleared - backlog;
+        if (pending < 0) pending = 0;
+    } else {
+        const clearedText = document.querySelector(`#table-${sem} .cleared`).textContent;
+        const backlogText = document.querySelector(`#table-${sem} .backlog`).textContent;
+        cleared = parseFloat(clearedText.replace(/[^\d.]/g, '')) || 0;
+        backlog = parseFloat(backlogText.replace(/[^\d.]/g, '')) || 0;
+    }
+
+    const data = sem === 'summary' ? [cleared, backlog, pending] : [cleared, backlog];
+    const labels = sem === 'summary' ? ['Cleared', 'Backlog', 'Pending'] : ['Cleared', 'Backlog'];
+    const colors = sem === 'summary' ? ['#198754', '#dc3545', '#ffc107'] : ['#198754', '#dc3545'];
+
+    new Chart(ctx, {
+        type: 'pie',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors
+            }]
+        }
+    });
+}
+</script>
+</body>
+</html>
