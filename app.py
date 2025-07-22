@@ -591,12 +591,11 @@ def upload_insert():
     branch = request.form.get('branch')
     semester = request.form.get('semester')
     academic_year = request.form.get('academic_year')
-    program = request.form.get('program')  # 🆕 Extract program
+    program = request.form.get('program')
 
     if not file or not allowed_file(file.filename):
-        return render_template("admin_dashboard.html",
-                               message="Please upload a valid .xlsx file.",
-                               schoolBranchMap=school_branch_map)
+        flash("Please upload a valid .xlsx file.")
+        return redirect(url_for('admin_dashboard'))
 
     filename = file.filename
     filepath = os.path.join(UPLOAD_FOLDER, filename)
@@ -605,39 +604,15 @@ def upload_insert():
     df = pd.read_excel(filepath)
     df.fillna('', inplace=True)
 
+    new_rows = []
     errors = []
 
-    # ✅ Build list of (reg_no, subject_code) for entire sheet
-    keys = [
-        (str(row.get('Reg_No', '')).strip(), str(row.get('Subject_Code', '')).strip())
-        for _, row in df.iterrows()
-        if str(row.get('Reg_No', '')).strip() and str(row.get('Subject_Code', '')).strip()
-    ]
-
-    # ✅ Fetch existing keys in one call
-    try:
-        existing_resp = supabase.table("results").select("reg_no, subject_code").in_(
-            "reg_no", [k[0] for k in keys]
-        ).execute()
-
-        existing_keys = set(
-            (row['reg_no'], row['subject_code']) for row in existing_resp.data
-        )
-    except Exception as e:
-        flash(f"Failed to fetch existing records: {e}")
-        return redirect(url_for('admin_dashboard'))
-
-    # ✅ Prepare list of new rows
-    new_rows = []
     for _, row in df.iterrows():
         reg_no = str(row.get('Reg_No', '')).strip()
         subject_code = str(row.get('Subject_Code', '')).strip()
 
         if not reg_no or not subject_code:
             continue
-
-        if (reg_no, subject_code) in existing_keys:
-            continue  # skip duplicates
 
         new_rows.append({
             "reg_no": reg_no,
@@ -651,20 +626,19 @@ def upload_insert():
             "school": school,
             "branch": branch,
             "academic_year": academic_year,
-            "program": program  # 🆕 Added here
+            "program": program
         })
 
     inserted = 0
-
-    # ✅ Bulk insert
     if new_rows:
         try:
-            insert_resp = supabase.table("results").insert(new_rows).execute()
+            # You can consider chunking if the file is large
+            supabase.table("results").insert(new_rows).execute()
             inserted = len(new_rows)
         except Exception as e:
             errors.append(f"Insertion failed: {e}")
 
-    # ✅ Log the upload
+    # Upload log
     try:
         supabase.table("uploads").insert({
             "filename": filename,
@@ -673,14 +647,14 @@ def upload_insert():
             "branch": branch,
             "semester": semester,
             "academic_year": academic_year,
-            "program": program  # 🆕 Log program as well
+            "program": program
         }).execute()
     except Exception as e:
         errors.append(f"Upload log failed: {e}")
 
-    # ✅ Flash results
+    # Final flash messages
     if inserted:
-        flash(f"{inserted} rows inserted successfully.")
+        flash(f"✅ {inserted} rows inserted successfully.")
     else:
         flash("⚠️ No new records inserted.")
 
@@ -688,7 +662,6 @@ def upload_insert():
         flash("Some errors occurred: " + "; ".join(errors))
 
     return redirect(url_for('admin_dashboard'))
-
 
 @app.route('/admin/upload_update', methods=['POST'])
 def upload_update():
