@@ -19,140 +19,134 @@
         {% endif %}
     {% endwith %}
 
-   <div class="col-md-8 mx-auto">
-    <!-- ✅ CARD 1: Add Basket Subjects -->
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-            <span>➕ Add Basket Subjects</span>
-            <button class="btn btn-sm btn-light" onclick="toggleUploadMode()">📁 Toggle Upload</button>
-        </div>
-        <div class="card-body">
-            <!-- 📄 XLSX Upload Form -->
-            <form id="xlsxForm" action="/admin/upload-subjects" method="POST" enctype="multipart/form-data" style="display: none;">
-                <div class="mb-3">
-                    <label class="form-label">Upload Excel (.xlsx)</label>
-                    <input type="file" name="file" class="form-control" accept=".xlsx" required>
-                </div>
-                <button type="submit" class="btn btn-primary w-100">Upload Subjects</button>
-            </form>
+    <div class="col-md-10 mx-auto">
+        <!-- ✅ CARD 1: Add Basket Subjects -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                <span>➕ Add Basket Subjects</span>
+                <button class="btn btn-sm btn-light" onclick="toggleUploadMode()">📁 Toggle Upload</button>
+            </div>
+            <div class="card-body">
+                <!-- 📄 XLSX Upload Form -->
+                <form id="xlsxForm" action="/admin/upload-subjects" method="POST" enctype="multipart/form-data" style="display: none;">
+                    <div class="mb-3">
+                        <label class="form-label">Upload Excel (.xlsx)</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Upload Subjects</button>
+                </form>
 
-            <!-- 📝 Manual Entry Form -->
-            <form id="manualForm" action="/admin/add-subject" method="POST">
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Program</label>
-                        <input type="text" name="program" class="form-control" placeholder="e.g. BTech" required>
+                <!-- 📝 Manual Entry Form -->
+                <form id="manualForm" action="/admin/add-subject" method="POST">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Program</label>
+                            <input type="text" name="program" class="form-control" placeholder="e.g. BTech" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Branch</label>
+                            <input type="text" name="branch" class="form-control" placeholder="e.g. CSE" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Basket</label>
+                            <select name="basket" class="form-select" required>
+                                <option value="">-- Select Basket --</option>
+                                {% for i in range(1, 7) %}
+                                    <option>Basket {{ i }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label">Branch</label>
-                        <input type="text" name="branch" class="form-control" placeholder="e.g. CSE" required>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Subject Code</label>
+                            <input type="text" name="subject_code" class="form-control" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Subject Name</label>
+                            <input type="text" name="subject_name" class="form-control" required>
+                        </div>
                     </div>
-                </div>
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label class="form-label">Basket</label>
-                        <select name="basket" class="form-select" required>
-                            <option value="">-- Select Basket --</option>
-                            <option>Basket I</option>
-                            <option>Basket II</option>
-                            <option>Basket III</option>
-                            <option>Basket IV</option>
-                            <option>Basket V</option>
-                            <option>Basket VI</option>
-                        </select>
-                    </div>
-                    <div class="col-md-6">
+                    <div class="mb-3">
                         <label class="form-label">Credits</label>
                         <input type="number" step="0.5" name="credits" class="form-control" required>
                     </div>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Subject Code</label>
-                    <input type="text" name="subject_code" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">Subject Name</label>
-                    <input type="text" name="subject_name" class="form-control" required>
-                </div>
-                <button type="submit" class="btn btn-primary w-100">Add Subject</button>
-            </form>
+                    <button type="submit" class="btn btn-primary w-100">Add Subject</button>
+                </form>
+            </div>
         </div>
-    </div>
 
-    <!-- ✅ CARD 2: Update Subject (Placed below Add Card) -->
-    <div class="card shadow-sm mb-4">
-        <div class="card-header bg-warning text-dark">✏️ Update Subject Details</div>
-        <div class="card-body">
-            <form action="/admin/update-subject" method="POST">
-                <div class="mb-3">
-                    <label class="form-label">Subject Code (to update)</label>
-                    <input type="text" name="subject_code" class="form-control" required>
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">New Subject Name</label>
-                    <input type="text" name="subject_name" class="form-control">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">New Credits</label>
-                    <input type="number" step="0.5" name="credits" class="form-control">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label">New Basket</label>
-                    <select name="basket" class="form-select">
-                        <option value="">-- Select New Basket --</option>
-                        <option>Basket I</option>
-                        <option>Basket II</option>
-                        <option>Basket III</option>
-                        <option>Basket IV</option>
-                        <option>Basket V</option>
-                        <option>Basket VI</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-warning w-100">Update Subject</button>
-            </form>
+        <!-- ✅ CARD 2: Update Subject -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-warning text-dark">✏️ Update Subject Details</div>
+            <div class="card-body">
+                <form action="/admin/update-subject" method="POST">
+                    <div class="mb-3">
+                        <label class="form-label">Subject Code (to update)</label>
+                        <input type="text" name="subject_code" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">New Subject Name</label>
+                        <input type="text" name="subject_name" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">New Credits</label>
+                        <input type="number" step="0.5" name="credits" class="form-control">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">New Basket</label>
+                        <select name="basket" class="form-select">
+                            <option value="">-- Select New Basket --</option>
+                            {% for i in range(1, 7) %}
+                                <option>Basket {{ i }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-warning w-100">Update Subject</button>
+                </form>
+            </div>
         </div>
-    </div>
-</div>
 
-    <!-- Display Subjects -->
-    <div class="card">
-        <div class="card-header bg-dark text-white">📋 All Basket Subjects</div>
-        <div class="card-body p-0">
-            <div class="table-responsive">
-                <table class="table table-bordered table-hover mb-0">
-                    <thead class="table-light">
-                        <tr>
-                            <th>Code</th>
-                            <th>Name</th>
-                            <th>Credits</th>
-                            <th>Basket</th>
-                            <th>Program</th>
-                            <th>Branch</th>
-                            <th>Added</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for sub in subjects %}
-                        <tr>
-                            <td>{{ sub.subject_code }}</td>
-                            <td>{{ sub.subject_name }}</td>
-                            <td>{{ sub.credits }}</td>
-                            <td>{{ sub.basket }}</td>
-                            <td>{{ sub.program }}</td>
-                            <td>{{ sub.branch }}</td>
-                            <td>{{ sub.created_at[:10] if sub.created_at else '-' }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="7" class="text-center text-muted">No basket subjects found.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        <!-- ✅ CARD 3: Display Subjects -->
+        <div class="card">
+            <div class="card-header bg-dark text-white">📋 All Basket Subjects</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Code</th>
+                                <th>Name</th>
+                                <th>Credits</th>
+                                <th>Basket</th>
+                                <th>Program</th>
+                                <th>Branch</th>
+                                <th>Added</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for sub in subjects %}
+                                <tr>
+                                    <td>{{ sub.subject_code }}</td>
+                                    <td>{{ sub.subject_name }}</td>
+                                    <td>{{ sub.credits }}</td>
+                                    <td>{{ sub.basket }}</td>
+                                    <td>{{ sub.program }}</td>
+                                    <td>{{ sub.branch }}</td>
+                                    <td>{{ sub.created_at[:10] if sub.created_at else '-' }}</td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="7" class="text-center text-muted">No basket subjects found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
 </div>
-</body>
-<!-- ✅ Toggle JS -->
+
+<!-- ✅ Toggle Upload Mode Script -->
 <script>
     function toggleUploadMode() {
         const manualForm = document.getElementById('manualForm');
@@ -163,4 +157,5 @@
         xlsxForm.style.display = isManualHidden ? 'none' : 'block';
     }
 </script>
+</body>
 </html>

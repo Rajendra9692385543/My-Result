@@ -310,41 +310,92 @@ def manage_basket():
     if 'admin' not in session:
         return redirect(url_for('admin_login'))
 
-    # Load existing subjects
+    # Get filters from query parameters (if any)
+    selected_program = request.args.get("program", "").strip()
+    selected_branch = request.args.get("branch", "").strip()
+    selected_basket = request.args.get("basket", "").strip()
+
     try:
-        subjects = supabase.table("cbcs_basket").select("*").order("subject_code").execute().data
+        # Build Supabase filter query dynamically
+        query = supabase.table("cbcs_basket").select("*")
+
+        if selected_program:
+            query = query.eq("program", selected_program)
+        if selected_branch:
+            query = query.eq("branch", selected_branch)
+        if selected_basket:
+            query = query.eq("basket", selected_basket)
+
+        query = query.order("subject_code")
+        subjects = query.execute().data
+
     except Exception as e:
         subjects = []
         flash(f"❌ Failed to load subjects: {e}")
 
-    return render_template("manage_basket.html", subjects=subjects)
+    # Distinct values for dropdowns
+    try:
+        all_subjects = supabase.table("cbcs_basket").select("program, branch, basket").execute().data
+        programs = sorted({row["program"] for row in all_subjects if row["program"]})
+        branches = sorted({row["branch"] for row in all_subjects if row["branch"]})
+        baskets = sorted({row["basket"] for row in all_subjects if row["basket"]})
+    except:
+        programs, branches, baskets = [], [], []
+
+    return render_template("manage_basket.html",
+                           subjects=subjects,
+                           programs=programs,
+                           branches=branches,
+                           baskets=baskets,
+                           selected_program=selected_program,
+                           selected_branch=selected_branch,
+                           selected_basket=selected_basket)
 
 @app.route('/admin/add-subject', methods=['POST'])
 def add_subject():
     if 'admin' not in session:
         return redirect(url_for('admin_login'))
 
-    data = {
-        "subject_code": request.form.get("subject_code", "").strip().upper(),
-        "subject_name": request.form.get("subject_name", "").strip(),
-        "credits": float(request.form.get("credits", 0)),
-        "basket": request.form.get("basket", "").strip(),
-        "program": request.form.get("program", "").strip(),
-        "branch": request.form.get("branch", "").strip()
-    }
+    # Extract and clean form data
+    subject_code = request.form.get("subject_code", "").strip().upper()
+    subject_name = request.form.get("subject_name", "").strip()
+    credits = request.form.get("credits", "").strip()
+    basket = request.form.get("basket", "").strip()
+    program = request.form.get("program", "").strip()
+    branch = request.form.get("branch", "").strip()
 
-    if not data["subject_code"]:
-        flash("Subject Code is required.")
+    # Basic validation
+    if not subject_code or not subject_name or not credits or not program or not branch or not basket:
+        flash("⚠️ All fields are required.")
         return redirect(url_for('manage_basket'))
 
     try:
-        # Check if subject already exists
-        exists = supabase.table("cbcs_basket").select("id").eq("subject_code", data["subject_code"]).execute()
-        if exists.data:
-            flash("⚠️ Subject already exists. Use update form to modify.")
+        credits = float(credits)
+    except ValueError:
+        flash("⚠️ Credits must be a valid number.")
+        return redirect(url_for('manage_basket'))
+
+    try:
+        # Check if the exact subject already exists
+        existing = supabase.table("cbcs_basket").select("id").match({
+            "subject_code": subject_code,
+            "program": program,
+            "branch": branch,
+            "basket": basket
+        }).execute()
+
+        if existing.data:
+            flash(f"⚠️ This subject already exists in the selected basket for this branch & program.")
         else:
-            supabase.table("cbcs_basket").insert(data).execute()
-            flash(f"✅ Subject '{data['subject_code']}' added.")
+            supabase.table("cbcs_basket").insert({
+                "subject_code": subject_code,
+                "subject_name": subject_name,
+                "credits": credits,
+                "basket": basket,
+                "program": program,
+                "branch": branch
+            }).execute()
+            flash(f"✅ Subject '{subject_code}' added.")
     except Exception as e:
         flash(f"❌ Failed to add subject: {e}")
 
@@ -405,27 +456,42 @@ def upload_subjects():
         df = pd.read_excel(file)
         df.fillna('', inplace=True)
 
-        subjects = []
+        inserted = 0
+        skipped = 0
         for _, row in df.iterrows():
             subject_code = str(row.get("subject_code", "")).strip().upper()
-            if not subject_code:
+            program = str(row.get("program", "")).strip()
+            branch = str(row.get("branch", "")).strip()
+            basket = str(row.get("basket", "")).strip()
+            subject_name = str(row.get("subject_name", "")).strip()
+            credits = str(row.get("credits", "")).strip()
+
+            # Skip invalid
+            if not all([subject_code, program, branch, basket, subject_name, credits]):
+                skipped += 1
                 continue
 
-            subjects.append({
+            # Check if subject already exists
+            exists = supabase.table("cbcs_basket").select("id") \
+                .eq("subject_code", subject_code) \
+                .eq("program", program) \
+                .eq("branch", branch).execute()
+
+            if exists.data:
+                skipped += 1
+                continue
+
+            supabase.table("cbcs_basket").insert({
                 "subject_code": subject_code,
-                "subject_name": str(row.get("subject_name", "")).strip(),
-                "credits": float(row.get("credits", 0)),
-                "basket": str(row.get("basket", "")).strip(),
-                "program": str(row.get("program", "")).strip(),
-                "branch": str(row.get("branch", "")).strip()
-            })
+                "subject_name": subject_name,
+                "credits": credits,
+                "basket": basket,
+                "program": program,
+                "branch": branch
+            }).execute()
+            inserted += 1
 
-        if subjects:
-            supabase.table("cbcs_basket").insert(subjects).execute()
-            flash(f"✅ {len(subjects)} subjects uploaded.")
-        else:
-            flash("⚠️ No valid subjects found in file.")
-
+        flash(f"✅ {inserted} subjects added. 🚫 {skipped} skipped (duplicates or incomplete).")
     except Exception as e:
         flash(f"❌ Upload failed: {e}")
 
