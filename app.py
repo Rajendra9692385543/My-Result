@@ -915,19 +915,19 @@ def view_basket_subjects():
     # Basket requirement mapping
     BASKET_CREDIT_REQUIREMENTS = {
         "BTech": {
-            "Basket I": 18,
-            "Basket II": 18,
-            "Basket III": 24,
-            "Basket IV": 80,
-            "Basket V": 20,
+            "Basket I": 17,
+            "Basket II": 12,
+            "Basket III": 25,
+            "Basket IV": 58,
+            "Basket V": 48,
             "Total": 160
         },
         "BTech Honours": {
-            "Basket I": 18,
-            "Basket II": 18,
-            "Basket III": 24,
-            "Basket IV": 80,
-            "Basket V": 40,
+            "Basket I": 17,
+            "Basket II": 12,
+            "Basket III": 25,
+            "Basket IV": 58,
+            "Basket V": 68,
             "Total": 180
         },
         "BBA": {
