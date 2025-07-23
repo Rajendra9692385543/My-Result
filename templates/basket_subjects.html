@@ -24,38 +24,12 @@
 <body class="bg-light">
 <div class="container my-4">
 
-  <!-- 📋 Overall Credit Summary -->
-  {% set total_completed = 0 %}
-  {% set total_backlog = 0 %}
-  {% set total_required = 0 %}
-  {% for data in basket_data.values() %}
-      {% set total_completed = total_completed + data.cleared_credits %}
-      {% set total_backlog = total_backlog + data.backlog_credits %}
-      {% set total_required = total_required + data.total_credits %}
-  {% endfor %}
-  {% set total_pending = total_required - (total_completed + total_backlog) %}
-  {% set overall_percent = (total_completed / total_required * 100) if total_required > 0 else 0 %}
-
-  <div class="card mb-4 shadow-sm border-info">
-    <div class="card-header bg-info text-white">
-      <h5 class="mb-0">📋 Overall Credit Summary</h5>
-    </div>
-    <div class="card-body">
-      <p><strong>Total Required Credits:</strong> {{ total_required }}</p>
-      <p><strong>✅ Credits Completed:</strong> {{ total_completed }}</p>
-      <p><strong>❌ Backlog Credits:</strong> {{ total_backlog }}</p>
-      <p><strong>🕓 Pending Credits:</strong> {{ total_pending }}</p>
-
-      <p class="mb-1"><strong>Progress:</strong> {{ overall_percent | round(2) }}%</p>
-      <div class="progress">
-        <div class="progress-bar bg-success" role="progressbar"
-             style="width: {{ overall_percent }}%"
-             aria-valuenow="{{ overall_percent }}" aria-valuemin="0" aria-valuemax="100">
-          {{ overall_percent | round(0) }}%
-        </div>
-      </div>
-    </div>
+{% if not student or not basket_data or basket_data|length == 0 %}
+  <div class="alert alert-warning text-center">
+    ⚠️ No basket summary available. Make sure basket subjects are uploaded for this student's program and branch.
   </div>
+  <a href="/credit-tracker" class="btn btn-outline-secondary mt-4">← Back to Credit Tracker</a>
+{% else %}
 
   <!-- 🎓 Student Info -->
   <div class="card mb-4 shadow-sm">
@@ -71,11 +45,14 @@
   </div>
 
   <!-- 🧾 Basket-wise Cards -->
-  {% for basket, data in basket_data.items() %}
+  {% set basket_loop = namespace(index=0) %}
+  {% for basket in basket_data.keys()|sort %}
+    {% set data = basket_data[basket] %}
+    {% set basket_loop.index = basket_loop.index + 1 %}
   <div class="card mb-4 shadow-sm">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
       <h6 class="mb-0">{{ basket }}</h6>
-      <button class="btn btn-sm btn-light" onclick="toggleChart({{ loop.index }})">📊 Toggle View</button>
+      <button class="btn btn-sm btn-light" onclick="toggleChart({{ basket_loop.index }})">📊 Toggle View</button>
     </div>
     <div class="card-body">
       {% set cleared = data.cleared_credits %}
@@ -98,8 +75,8 @@
       </div>
 
       <!-- 📊 Pie Chart -->
-      <div class="chart-container mb-3" id="chart-container-{{ loop.index }}" style="display: none;">
-        <canvas id="chart-{{ loop.index }}"></canvas>
+      <div class="chart-container mb-3" id="chart-container-{{ basket_loop.index }}" style="display: none;">
+        <canvas id="chart-{{ basket_loop.index }}"></canvas>
       </div>
 
       <!-- ✅ Completed Subjects -->
@@ -108,9 +85,7 @@
       <div class="table-responsive mb-3">
         <table class="table table-sm table-bordered">
           <thead class="table-light">
-            <tr>
-              <th>Code</th><th>Name</th><th>Credits</th><th>Grade</th><th>Sem</th>
-            </tr>
+            <tr><th>Code</th><th>Name</th><th>Credits</th><th>Grade</th><th>Sem</th></tr>
           </thead>
           <tbody>
             {% for sub in data.completed %}
@@ -135,9 +110,7 @@
       <div class="table-responsive">
         <table class="table table-sm table-bordered">
           <thead class="table-light">
-            <tr>
-              <th>Code</th><th>Name</th><th>Credits</th><th>Grade</th><th>Sem</th>
-            </tr>
+            <tr><th>Code</th><th>Name</th><th>Credits</th><th>Grade</th><th>Sem</th></tr>
           </thead>
           <tbody>
             {% for sub in data.backlogs %}
@@ -160,6 +133,8 @@
   {% endfor %}
 
   <a href="/credit-tracker" class="btn btn-outline-secondary mt-4">← Back to Credit Tracker</a>
+
+{% endif %}
 </div>
 
 <!-- 🧠 Chart Script -->
@@ -167,7 +142,7 @@
 document.addEventListener("DOMContentLoaded", function () {
   const basketData = {{ basket_data | tojson }};
   let index = 1;
-  for (const [basket, bdata] of Object.entries(basketData)) {
+  for (const [basket, bdata] of Object.entries(basketData).sort()) {
     const cleared = bdata.cleared_credits || 0;
     const backlog = bdata.backlog_credits || 0;
     const total = bdata.total_credits || 0;

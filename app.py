@@ -1014,9 +1014,12 @@ def view_basket_subjects():
 
     basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
 
-    # Fetch CBCS mappings
+    # Fetch CBCS mappings with full program/branch flexibility
     cbcs_resp = supabase.table("cbcs_basket").select("*").or_(
-        f"and(program.eq.{program},branch.eq.All),and(program.eq.{program},branch.eq.{branch})"
+        f"and(program.eq.{program},branch.eq.All),"
+        f"and(program.eq.{program},branch.eq.{branch}),"
+        f"and(program.eq.All,branch.eq.All),"
+        f"and(program.eq.All,branch.eq.{branch})"
     ).execute()
     cbcs_map = cbcs_resp.data
 
@@ -1032,7 +1035,7 @@ def view_basket_subjects():
                 credits = float(row.get("credits", 0))
             except:
                 credits = 0
-            subject_basket_map[subject_code] = {
+            subject_basket_map[subject_code.strip()] = {
                 "basket": row.get("basket", "Unknown"),
                 "credits": credits,
                 "subject_name": row.get("subject_name", "")
@@ -1082,10 +1085,13 @@ def view_basket_subjects():
     if unmatched > 0:
         flash(f"{unmatched} subject(s) did not match any CBCS basket mapping and were ignored.", "info")
 
+    # ✅ Sort baskets in order Basket I, II, III, ...
+    sorted_baskets = dict(sorted(baskets.items(), key=lambda x: x[0]))
+
     return render_template(
         "basket_subjects.html",
         student=student,
-        basket_data=baskets,
+        basket_data=sorted_baskets,
         basket_requirements=basket_requirements
     )
 
