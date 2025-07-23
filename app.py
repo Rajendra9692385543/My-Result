@@ -671,29 +671,43 @@ def upload_update():
     file = request.files.get('file')
 
     if not file or not allowed_file(file.filename):
-        return render_template("admin_dashboard.html", message="Please upload a valid .xlsx file.", schoolBranchMap=school_branch_map)
+        flash("Please upload a valid .xlsx file.")
+        return redirect(url_for('admin_dashboard'))
 
     filename = file.filename
     filepath = os.path.join(UPLOAD_FOLDER, filename)
     file.save(filepath)
 
-    df = pd.read_excel(filepath)
-    df.fillna('', inplace=True)
+    try:
+        df = pd.read_excel(filepath)
+        df.fillna('', inplace=True)
+    except Exception as e:
+        flash(f"Failed to read Excel file: {e}")
+        return redirect(url_for('admin_dashboard'))
+
+    # Normalize column names
+    columns = [col.lower().strip().replace(" ", "_") for col in df.columns]
+    df.columns = columns
+
+    # Identify required columns
+    reg_col = "reg_no" if "reg_no" in columns else "registration_number" if "registration_number" in columns else None
+    if not reg_col or "subject_code" not in columns or "grade" not in columns:
+        flash("Required columns missing: Reg_No/Registration Number, Subject_Code, Grade")
+        return redirect(url_for('admin_dashboard'))
 
     updated = 0
     errors = []
 
     for _, row in df.iterrows():
         try:
-            reg_no = str(row['Reg_No']).strip()
-            subject_code = str(row['Subject_Code']).strip()
-            name = str(row['Name']).strip()
-            subject_name = str(row['Subject_Name']).strip()
-            type_ = str(row['Type']).strip()
-            credits = str(row['Credits']).strip()
-            grade = str(row['Grade']).strip()
+            reg_no = str(row.get(reg_col, "")).strip()
+            subject_code = str(row.get("subject_code", "")).strip()
+            grade = str(row.get("grade", "")).strip()
 
-            # Get the row to update
+            if not reg_no or not subject_code or not grade:
+                continue
+
+            # Check if record exists in database
             match_result = supabase.table("results").select("id").match({
                 "reg_no": reg_no,
                 "subject_code": subject_code
@@ -701,18 +715,14 @@ def upload_update():
 
             if match_result.data:
                 record_id = match_result.data[0]['id']
-                supabase.table("results").update({
-                    "name": name,
-                    "subject_name": subject_name,
-                    "type": type_,
-                    "credits": credits,
-                    "grade": grade
-                }).eq("id", record_id).execute()
+                supabase.table("results").update({"grade": grade}).eq("id", record_id).execute()
                 updated += 1
+            # else: silently ignore if no match
+
         except Exception as e:
             errors.append(str(e))
 
-    # Log the update
+    # Log the update attempt
     try:
         supabase.table("uploads").insert({
             "filename": filename,
@@ -722,12 +732,12 @@ def upload_update():
         errors.append(f"Upload log failed: {e}")
 
     if updated:
-        flash(f"{updated} rows updated successfully.")
+        flash(f"✅ {updated} rows updated successfully.")
     else:
-        flash("No matching records were found to update.")
+        flash("⚠️ No matching records were found to update.")
 
     if errors:
-        flash("Some errors occurred: " + "; ".join(errors))
+        flash("❌ Some errors occurred: " + "; ".join(errors))
 
     return redirect(url_for('admin_dashboard'))
 
