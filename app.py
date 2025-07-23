@@ -127,15 +127,24 @@ def result():
     sgpa = calculate_gpa(semester_records)
     cgpa = calculate_gpa(all_records)
 
-    # Get list of semesters
+    # ✅ Get distinct semester list and sort by semester number
     semesters_resp = supabase.table("results") \
         .select("semester") \
         .eq("reg_no", reg_no) \
-        .order("semester", desc=False) \
         .execute()
 
-    semesters = list({row["semester"] for row in semesters_resp.data})
+    raw_semesters = list({row["semester"] for row in semesters_resp.data if row.get("semester")})
 
+    # Extract semester number for sorting (e.g., "Sem 2" -> 2)
+    def extract_sem_number(sem):
+        try:
+            return int(''.join(filter(str.isdigit, sem)))
+        except:
+            return float('inf')  # push unknowns to end
+
+    semesters = sorted(raw_semesters, key=extract_sem_number)
+
+    # ✅ Prepare chart data in sorted order
     chart_data = []
     for sem in semesters:
         response = supabase.table("results").select("*").eq("reg_no", reg_no).eq("semester", sem).execute()
@@ -684,50 +693,63 @@ def upload_update():
         flash(f"Failed to read Excel file: {e}")
         return redirect(url_for('admin_dashboard'))
 
-    # Rename columns to match expected internal keys
-    column_rename_map = {
+    # Rename columns
+    df.columns = [col.strip().lower() for col in df.columns]
+    column_map = {
         'registration no.': 'reg_no',
+        'reg_no': 'reg_no',
         'subject code': 'subject_code',
         'grade': 'grade'
     }
+    df.rename(columns={k: v for k, v in column_map.items() if k in df.columns}, inplace=True)
 
-    # Normalize and rename columns
-    df.columns = [col.strip().lower() for col in df.columns]
-    df.rename(columns=column_rename_map, inplace=True)
-
-    required_columns = ['reg_no', 'subject_code', 'grade']
-    if not all(col in df.columns for col in required_columns):
+    if not {'reg_no', 'subject_code', 'grade'}.issubset(df.columns):
         flash("❌ Required columns missing: Registration No., Subject Code, Grade")
         return redirect(url_for('admin_dashboard'))
+
+    # Build all (reg_no, subject_code) pairs from Excel
+    keys = set()
+    for _, row in df.iterrows():
+        reg = str(row['reg_no']).strip()
+        code = str(row['subject_code']).strip()
+        if reg and code:
+            keys.add((reg, code))
+
+    if not keys:
+        flash("❌ No valid records found.")
+        return redirect(url_for('admin_dashboard'))
+
+    # 🔍 Fetch all matching results in ONE query
+    regnos = list({k[0] for k in keys})
+    try:
+        db_records = supabase.table("results").select("id, reg_no, subject_code") \
+            .in_("reg_no", regnos).execute().data
+    except Exception as e:
+        flash(f"❌ Error fetching existing records: {e}")
+        return redirect(url_for('admin_dashboard'))
+
+    # 📌 Build lookup map
+    id_map = {(r["reg_no"], r["subject_code"]): r["id"] for r in db_records}
 
     updated = 0
     errors = []
 
     for _, row in df.iterrows():
-        try:
-            reg_no = str(row.get('reg_no', '')).strip()
-            subject_code = str(row.get('subject_code', '')).strip()
-            grade = str(row.get('grade', '')).strip()
+        reg_no = str(row.get("reg_no", "")).strip()
+        subject_code = str(row.get("subject_code", "")).strip()
+        grade = str(row.get("grade", "")).strip()
 
-            if not reg_no or not subject_code or not grade:
-                continue
-
-            # Check if record exists in database
-            match = supabase.table("results").select("id").match({
-                "reg_no": reg_no,
-                "subject_code": subject_code
-            }).execute()
-
-            if match.data:
-                record_id = match.data[0]["id"]
-                supabase.table("results").update({"grade": grade}).eq("id", record_id).execute()
+        key = (reg_no, subject_code)
+        if key in id_map:
+            try:
+                supabase.table("results").update({
+                    "grade": grade
+                }).eq("id", id_map[key]).execute()
                 updated += 1
-            # Else skip silently
+            except Exception as e:
+                errors.append(str(e))
 
-        except Exception as e:
-            errors.append(str(e))
-
-    # Log the upload
+    # ✅ Log the update
     try:
         supabase.table("uploads").insert({
             "filename": filename,
@@ -736,11 +758,11 @@ def upload_update():
     except Exception as e:
         errors.append(f"Upload log failed: {e}")
 
-    # Flash Results
+    # ✅ Result messages
     if updated:
-        flash(f"✅ {updated} rows updated successfully.")
+        flash(f"✅ {updated} grades updated successfully.")
     else:
-        flash("⚠️ No matching records were found to update.")
+        flash("⚠️ No matching records found to update.")
 
     if errors:
         flash("❌ Some errors occurred: " + "; ".join(errors))
@@ -751,17 +773,20 @@ def upload_update():
 def get_semesters():
     reg_no = request.args.get('reg_no', '').strip()
 
+    if not reg_no:
+        return {'error': 'Registration number is required.', 'semesters': []}
+
     try:
+        # Use `.select("semester").eq(...)` still due to Supabase limitation (no distinct in client lib)
         response = supabase.table("results") \
             .select("semester") \
             .eq("reg_no", reg_no) \
             .execute()
 
-        # Extract distinct semesters
-        semesters = list({row['semester'] for row in response.data if row.get('semester')})
-
-        # Optional: sort semesters if needed
-        semesters.sort()
+        # Collect and deduplicate semesters
+        semesters = sorted(set(
+            row["semester"] for row in response.data if row.get("semester")
+        ))
 
         return {'semesters': semesters}
 
