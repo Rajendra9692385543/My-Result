@@ -988,75 +988,66 @@ def view_basket_subjects():
         "batch": results[0].get("batch", "-")
     }
 
-    # Use fallback defaults if fields missing
+    # Fallbacks
     program = student["program"] if student["program"] and student["program"] != "-" else "BTech"
     branch = student["branch"] if student["branch"] and student["branch"] != "-" else "All"
 
-    # Basket requirement mapping
+    # Basket requirements
     BASKET_CREDIT_REQUIREMENTS = {
         "BTech": {
-            "Basket I": 17,
-            "Basket II": 12,
-            "Basket III": 25,
-            "Basket IV": 58,
-            "Basket V": 48,
-            "Total": 160
+            "Basket I": 17, "Basket II": 12, "Basket III": 25,
+            "Basket IV": 58, "Basket V": 48, "Total": 160
         },
         "BTech Honours": {
-            "Basket I": 17,
-            "Basket II": 12,
-            "Basket III": 25,
-            "Basket IV": 58,
-            "Basket V": 68,
-            "Total": 180
+            "Basket I": 17, "Basket II": 12, "Basket III": 25,
+            "Basket IV": 58, "Basket V": 68, "Total": 180
         },
         "BBA": {
-            "Basket I": 10,
-            "Basket II": 10,
-            "Basket III": 20,
-            "Basket IV": 60,
-            "Basket V": 20,
-            "Total": 120
+            "Basket I": 10, "Basket II": 10, "Basket III": 20,
+            "Basket IV": 60, "Basket V": 20, "Total": 120
         },
         "BSc Ag": {
-            "Basket I": 18,
-            "Basket II": 18,
-            "Basket III": 20,
-            "Basket IV": 96,
-            "Basket V": 20,
-            "Total": 172
+            "Basket I": 18, "Basket II": 18, "Basket III": 20,
+            "Basket IV": 96, "Basket V": 20, "Total": 172
         }
     }
 
-    # Get credit requirement for the student's program
     basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
 
-    # Fetch CBCS basket mappings (based on program & branch)
+    # Fetch CBCS mappings
     cbcs_resp = supabase.table("cbcs_basket").select("*").or_(
         f"and(program.eq.{program},branch.eq.All),and(program.eq.{program},branch.eq.{branch})"
     ).execute()
-
     cbcs_map = cbcs_resp.data
 
-    # subject_code → basket mapping
+    if not cbcs_map:
+        flash(f"No CBCS basket subjects found for program '{program}' and branch '{branch}'.", "warning")
+
+    # Build subject_code → basket map
     subject_basket_map = {}
     for row in cbcs_map:
         subject_code = row.get("subject_code")
         if subject_code:
+            try:
+                credits = float(row.get("credits", 0))
+            except:
+                credits = 0
             subject_basket_map[subject_code] = {
-                "basket": row.get("basket"),
-                "credits": float(row.get("credits", 0)),
+                "basket": row.get("basket", "Unknown"),
+                "credits": credits,
                 "subject_name": row.get("subject_name", "")
             }
 
-    # Group into baskets
+    # Build basket groups
     baskets = {}
+    unmatched = 0
 
     for row in results:
-        sub_code = row['subject_code']
-        grade = row.get('grade', '').strip().upper()
+        sub_code = row.get("subject_code", "").strip()
+        grade = row.get("grade", "").strip().upper()
 
         if sub_code not in subject_basket_map:
+            unmatched += 1
             continue
 
         info = subject_basket_map[sub_code]
@@ -1068,7 +1059,7 @@ def view_basket_subjects():
             baskets[basket] = {
                 "completed": [],
                 "backlogs": [],
-                "total_credits": basket_requirements.get(basket, 0),  # From mapping
+                "total_credits": basket_requirements.get(basket, 0),
                 "cleared_credits": 0,
                 "backlog_credits": 0
             }
@@ -1088,14 +1079,15 @@ def view_basket_subjects():
             baskets[basket]["completed"].append(sub_data)
             baskets[basket]["cleared_credits"] += credit
 
+    if unmatched > 0:
+        flash(f"{unmatched} subject(s) did not match any CBCS basket mapping and were ignored.", "info")
+
     return render_template(
         "basket_subjects.html",
         student=student,
         basket_data=baskets,
         basket_requirements=basket_requirements
     )
-
-
 
 if __name__ == '__main__':
     app.run(debug=True)
