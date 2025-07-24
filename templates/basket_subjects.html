@@ -44,17 +44,66 @@
     </div>
   </div>
 
+ <!-- 📊 Basket-wise Summary Overview -->
+<div class="card mb-4 shadow-sm border-primary">
+  <div class="card-header bg-primary text-white">
+    <h5 class="mb-0">📊 Basket Summary</h5>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive mb-3">
+      <table class="table table-bordered table-sm">
+        <thead class="table-light">
+          <tr>
+            <th>Basket</th>
+            <th>✅ Completed</th>
+            <th>❌ Backlogs</th>
+            <th>🕓 Pending</th>
+            <th>📈 Progress</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for basket in basket_data.keys()|sort(attribute='split'[-1]) %}
+            {% set data = basket_data[basket] %}
+            {% set cleared = data.cleared_credits %}
+            {% set backlog = data.backlog_credits %}
+            {% set total = data.total_credits %}
+            {% set pending = total - (cleared + backlog) %}
+            {% set percent = (cleared / total * 100) if total > 0 else 0 %}
+            <tr>
+              <td><strong>{{ basket }}</strong></td>
+              <td>{{ cleared }}</td>
+              <td>{{ backlog }}</td>
+              <td>{{ pending }}</td>
+              <td style="min-width: 150px;">
+                <div class="progress" style="height: 20px;">
+                  <div class="progress-bar bg-success" role="progressbar"
+                       style="width: {{ percent }}%" aria-valuenow="{{ percent }}"
+                       aria-valuemin="0" aria-valuemax="100">
+                    {{ percent | round(0) }}%
+                  </div>
+                </div>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
   <!-- 🧾 Basket-wise Cards -->
   {% set basket_loop = namespace(index=0) %}
-  {% for basket in basket_data.keys()|sort %}
+  {% for basket in basket_data.keys()|sort(attribute='split(" ")[1]|int') %}
     {% set data = basket_data[basket] %}
     {% set basket_loop.index = basket_loop.index + 1 %}
   <div class="card mb-4 shadow-sm">
     <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
       <h6 class="mb-0">{{ basket }}</h6>
-      <button class="btn btn-sm btn-light" onclick="toggleChart({{ basket_loop.index }})">📊 Toggle View</button>
+      <button class="btn btn-sm btn-light" onclick="toggleCardView({{ basket_loop.index }})">📊 Toggle View</button>
     </div>
-    <div class="card-body">
+
+    <!-- Card Body with Table -->
+    <div class="card-body" id="card-body-{{ basket_loop.index }}">
       {% set cleared = data.cleared_credits %}
       {% set backlog = data.backlog_credits %}
       {% set total = data.total_credits %}
@@ -72,11 +121,6 @@
              style="width: {{ percent }}%" aria-valuenow="{{ percent }}" aria-valuemin="0" aria-valuemax="100">
           {{ percent | round(0) }}%
         </div>
-      </div>
-
-      <!-- 📊 Pie Chart -->
-      <div class="chart-container mb-3" id="chart-container-{{ basket_loop.index }}" style="display: none;">
-        <canvas id="chart-{{ basket_loop.index }}"></canvas>
       </div>
 
       <!-- ✅ Completed Subjects -->
@@ -129,6 +173,11 @@
         <p class="text-muted">No backlog subjects.</p>
       {% endif %}
     </div>
+
+    <!-- 📊 Chart Section -->
+    <div class="chart-container mb-3" id="chart-container-{{ basket_loop.index }}" style="display: none;">
+      <canvas id="chart-{{ basket_loop.index }}"></canvas>
+    </div>
   </div>
   {% endfor %}
 
@@ -142,7 +191,7 @@
 document.addEventListener("DOMContentLoaded", function () {
   const basketData = {{ basket_data | tojson }};
   let index = 1;
-  for (const [basket, bdata] of Object.entries(basketData).sort()) {
+  for (const [basket, bdata] of Object.entries(basketData)) {
     const cleared = bdata.cleared_credits || 0;
     const backlog = bdata.backlog_credits || 0;
     const total = bdata.total_credits || 0;
@@ -173,6 +222,90 @@ function toggleChart(index) {
   const chartDiv = document.getElementById('chart-container-' + index);
   chartDiv.style.display = (chartDiv.style.display === 'none') ? 'block' : 'none';
 }
+
+// Toggle full view vs pie chart only
+function toggleCardView(index) {
+  const chart = document.getElementById('chart-container-' + index);
+  const body = document.getElementById('card-body-' + index);
+
+  if (body.style.display === 'none') {
+    body.style.display = 'block';
+    chart.style.display = 'none';
+  } else {
+    body.style.display = 'none';
+    chart.style.display = 'block';
+  }
+}
+function toggleBarChart() {
+  const chartContainer = document.getElementById('bar-chart-container');
+  chartContainer.style.display = (chartContainer.style.display === 'none') ? 'block' : 'none';
+}
+
+document.addEventListener("DOMContentLoaded", function () {
+  const basketData = {{ basket_data | tojson }};
+  const basketLabels = [];
+  const completed = [];
+  const backlog = [];
+  const pending = [];
+
+  // Ensure sorting order
+  const sortedKeys = Object.keys(basketData).sort((a, b) => {
+    const aNum = parseInt(a.split(" ")[1] || "9");
+    const bNum = parseInt(b.split(" ")[1] || "9");
+    return aNum - bNum;
+  });
+
+  sortedKeys.forEach(basket => {
+    const data = basketData[basket];
+    const cleared = data.cleared_credits || 0;
+    const back = data.backlog_credits || 0;
+    const total = data.total_credits || 0;
+    const pend = total - (cleared + back);
+
+    basketLabels.push(basket);
+    completed.push(cleared);
+    backlog.push(back);
+    pending.push(pend);
+  });
+
+  const barCtx = document.getElementById("bar-chart").getContext("2d");
+  new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels: basketLabels,
+      datasets: [
+        {
+          label: '✅ Completed',
+          data: completed,
+          backgroundColor: '#198754'
+        },
+        {
+          label: '❌ Backlog',
+          data: backlog,
+          backgroundColor: '#dc3545'
+        },
+        {
+          label: '🕓 Pending',
+          data: pending,
+          backgroundColor: '#ffc107'
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      },
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true }
+      }
+    }
+  });
+}
+);
 </script>
 </body>
 </html>

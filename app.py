@@ -971,14 +971,14 @@ def view_basket_subjects():
     if not reg_no:
         return redirect(url_for('credit_tracker_home'))
 
-    # Fetch student results
+    # ✅ Fetch student results
     results_resp = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
     results = results_resp.data
 
     if not results:
         return render_template("basket_subjects.html", student=None)
 
-    # Extract student info
+    # ✅ Extract student info
     student = {
         "name": results[0].get("name", "-"),
         "reg_no": reg_no,
@@ -988,60 +988,67 @@ def view_basket_subjects():
         "batch": results[0].get("batch", "-")
     }
 
-    # Fallbacks
-    program = student["program"] if student["program"] and student["program"] != "-" else "BTech"
-    branch = student["branch"] if student["branch"] and student["branch"] != "-" else "All"
+    # ✅ Normalize
+    program = student["program"].strip().title() if student["program"] else "BTech"
+    branch = student["branch"].strip().lower().replace(" ", "") if student["branch"] else "all"
 
-    # Basket requirements
+    # ✅ Basket Credit Requirements
     BASKET_CREDIT_REQUIREMENTS = {
-        "BTech": {
+        "Btech": {
             "Basket I": 17, "Basket II": 12, "Basket III": 25,
             "Basket IV": 58, "Basket V": 48, "Total": 160
         },
-        "BTech Honours": {
+        "Btech Honours": {
             "Basket I": 17, "Basket II": 12, "Basket III": 25,
             "Basket IV": 58, "Basket V": 68, "Total": 180
         },
-        "BBA": {
+        "Bba": {
             "Basket I": 10, "Basket II": 10, "Basket III": 20,
             "Basket IV": 60, "Basket V": 20, "Total": 120
         },
-        "BSc Ag": {
+        "Bsc Ag": {
             "Basket I": 18, "Basket II": 18, "Basket III": 20,
             "Basket IV": 96, "Basket V": 20, "Total": 172
         }
     }
 
-    basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
+    basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program.title(), {})
 
-    # Fetch CBCS mappings with full program/branch flexibility
-    cbcs_resp = supabase.table("cbcs_basket").select("*").or_(
-        f"and(program.eq.{program},branch.eq.All),"
-        f"and(program.eq.{program},branch.eq.{branch}),"
-        f"and(program.eq.All,branch.eq.All),"
-        f"and(program.eq.All,branch.eq.{branch})"
-    ).execute()
-    cbcs_map = cbcs_resp.data
+    # ✅ Fetch CBCS data
+    try:
+        cbcs_resp = supabase.table("cbcs_basket").select("*").execute()
+        cbcs_map = cbcs_resp.data
+    except Exception as e:
+        flash(f"❌ Error fetching CBCS mappings: {e}", "danger")
+        return render_template("basket_subjects.html", student=student, basket_data={}, basket_requirements={})
 
-    if not cbcs_map:
-        flash(f"No CBCS basket subjects found for program '{program}' and branch '{branch}'.", "warning")
-
-    # Build subject_code → basket map
+    # ✅ Build subject_code → basket map with filtering
     subject_basket_map = {}
     for row in cbcs_map:
-        subject_code = row.get("subject_code")
-        if subject_code:
+        sub_code = row.get("subject_code", "").strip()
+        cbcs_prog = row.get("program", "").strip().title()
+        cbcs_branch = row.get("branch", "").strip().lower().replace(" ", "")
+
+        # Match combinations
+        match = (
+            (cbcs_prog == program and cbcs_branch == branch) or
+            (cbcs_prog == program and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == branch)
+        )
+
+        if sub_code and match:
             try:
                 credits = float(row.get("credits", 0))
             except:
                 credits = 0
-            subject_basket_map[subject_code.strip()] = {
+            subject_basket_map[sub_code] = {
                 "basket": row.get("basket", "Unknown"),
                 "credits": credits,
                 "subject_name": row.get("subject_name", "")
             }
 
-    # Build basket groups
+    # ✅ Group into baskets
     baskets = {}
     unmatched = 0
 
@@ -1054,9 +1061,9 @@ def view_basket_subjects():
             continue
 
         info = subject_basket_map[sub_code]
-        basket = info['basket']
-        credit = info['credits']
-        sub_name = row.get("subject_name") or info['subject_name']
+        basket = info["basket"]
+        credit = info["credits"]
+        sub_name = row.get("subject_name") or info["subject_name"]
 
         if basket not in baskets:
             baskets[basket] = {
@@ -1075,7 +1082,7 @@ def view_basket_subjects():
             "semester": row.get("semester", "-")
         }
 
-        if grade in ['F', 'S']:
+        if grade in ["F", "S"]:
             baskets[basket]["backlogs"].append(sub_data)
             baskets[basket]["backlog_credits"] += credit
         else:
@@ -1085,8 +1092,14 @@ def view_basket_subjects():
     if unmatched > 0:
         flash(f"{unmatched} subject(s) did not match any CBCS basket mapping and were ignored.", "info")
 
-    # ✅ Sort baskets in order Basket I, II, III, ...
-    sorted_baskets = dict(sorted(baskets.items(), key=lambda x: x[0]))
+    # ✅ Sort baskets like I, II, III, IV...
+    def basket_order_key(basket_name):
+        try:
+            return int(basket_name.split()[-1])
+        except:
+            return 999  # Unknown baskets at end
+
+    sorted_baskets = dict(sorted(baskets.items(), key=lambda x: basket_order_key(x[0])))
 
     return render_template(
         "basket_subjects.html",
@@ -1094,6 +1107,7 @@ def view_basket_subjects():
         basket_data=sorted_baskets,
         basket_requirements=basket_requirements
     )
+
 
 if __name__ == '__main__':
     app.run(debug=True)
