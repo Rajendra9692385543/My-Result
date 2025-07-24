@@ -1003,8 +1003,8 @@ def view_basket_subjects():
             "Basket IV": 58, "Basket V": 68, "Total": 180
         },
         "Bba": {
-            "Basket I": 10, "Basket II": 10, "Basket III": 20,
-            "Basket IV": 60, "Basket V": 20, "Total": 120
+            "Basket I": 60, "Basket II": 32, "Basket III": 12,
+            "Basket IV": 12, "Basket V": 4, "Total": 120
         },
         "Bsc Ag": {
             "Basket I": 18, "Basket II": 18, "Basket III": 20,
