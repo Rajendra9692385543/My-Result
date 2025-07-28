@@ -1108,6 +1108,152 @@ def view_basket_subjects():
         basket_requirements=basket_requirements
     )
 
+from collections import defaultdict
+from flask import request, render_template, flash
+
+@app.route('/basket-summary-report', methods=['GET', 'POST'])
+def basket_summary_report():
+    try:
+        # 📌 Dropdown values from results table
+        dropdown_data = supabase.table("results").select("school", "branch", "program").execute().data
+        unique_schools = sorted({d.get("school") for d in dropdown_data if d.get("school")})
+        unique_programs = sorted({d.get("program") for d in dropdown_data if d.get("program")})
+        unique_branches = sorted({d.get("branch") for d in dropdown_data if d.get("branch")})
+
+    except Exception as e:
+        flash(f"❌ Error fetching dropdowns: {e}", "danger")
+        return render_template("basket_summary_report.html", data=[], baskets=[], schools=[], programs=[], branches=[])
+
+    if request.method == 'POST':
+        school = request.form.get('school')
+        program = request.form.get('program')
+        branch = request.form.get('branch')
+        start_reg = request.form.get('start_reg')
+        end_reg = request.form.get('end_reg')
+
+        try:
+            # ✅ Get student results in range
+            student_resp = supabase.table("results") \
+                .select("*") \
+                .gte("reg_no", start_reg) \
+                .lte("reg_no", end_reg) \
+                .eq("school", school) \
+                .eq("branch", branch) \
+                .eq("program", program) \
+                .execute()
+
+            student_results = student_resp.data
+            if not student_results:
+                flash("⚠️ No student records found.", "warning")
+                return render_template("basket_summary_report.html", data=[], baskets=[], schools=unique_schools, programs=unique_programs, branches=unique_branches)
+
+            # ✅ CBCS Data
+            cbcs_map = supabase.table("cbcs_basket").select("*").execute().data
+
+            # 🔁 Build subject_code → list of basket options
+            subject_basket_map = defaultdict(list)
+            for row in cbcs_map:
+                sub_code = row.get("subject_code", "").strip()
+                prog = row.get("program", "").strip().lower()
+                brnch = row.get("branch", "").strip().lower().replace(" ", "")
+                basket = row.get("basket", "").strip()
+                credits = float(row.get("credits", 0))
+
+                if sub_code and basket:
+                    subject_basket_map[sub_code].append({
+                        "program": prog,
+                        "branch": brnch,
+                        "basket": basket,
+                        "credits": credits
+                    })
+
+            # ✅ Basket Requirement Map
+            BASKET_CREDIT_REQUIREMENTS = {
+                "Btech": {
+                    "Basket I": 17, "Basket II": 12, "Basket III": 25,
+                    "Basket IV": 58, "Basket V": 48, "Total": 160
+                },
+                "Btech Honours": {
+                    "Basket I": 17, "Basket II": 12, "Basket III": 25,
+                    "Basket IV": 58, "Basket V": 68, "Total": 180
+                },
+                "Bba": {
+                    "Basket I": 60, "Basket II": 32, "Basket III": 12,
+                    "Basket IV": 12, "Basket V": 4, "Total": 120
+                },
+                "Bsc Ag": {
+                    "Basket I": 18, "Basket II": 18, "Basket III": 20,
+                    "Basket IV": 96, "Basket V": 20, "Total": 172
+                }
+            }
+            basket_labels = list(BASKET_CREDIT_REQUIREMENTS.get(program.title(), {}).keys())[:-1]  # Exclude 'Total'
+
+            # ✅ Aggregation per student
+            student_data = defaultdict(lambda: {
+                "name": "",
+                "reg_no": "",
+                "branch": "",
+                "baskets": defaultdict(float),
+                "backlog_credits": 0.0,
+                "total": 0.0
+            })
+
+            for row in student_results:
+                reg_no = row.get("reg_no", "").strip()
+                name = row.get("name", "-")
+                br = row.get("branch", "-")
+
+                subject_code = row.get("subject_code", "").strip()
+                grade = row.get("grade", "").strip().upper()
+
+                student = student_data[reg_no]
+                student["name"] = name
+                student["reg_no"] = reg_no
+                student["branch"] = br
+
+                if subject_code not in subject_basket_map:
+                    continue
+
+                matched = None
+                for option in subject_basket_map[subject_code]:
+                    prog = option["program"]
+                    brnch = option["branch"]
+                    if (prog == program.lower() or prog == "all") and (brnch == branch.lower().replace(" ", "") or brnch == "all"):
+                        matched = option
+                        break
+
+                if not matched:
+                    continue
+
+                credits = matched["credits"]
+                basket = matched["basket"]
+
+                if grade in ["F", "S"]:
+                    student["backlog_credits"] += credits
+                else:
+                    student["baskets"][basket] += credits
+                    student["total"] += credits
+
+            final_data = sorted(student_data.values(), key=lambda x: x["reg_no"])
+
+            return render_template("basket_summary_report.html",
+                                   data=final_data,
+                                   baskets=basket_labels,
+                                   schools=unique_schools,
+                                   programs=unique_programs,
+                                   branches=unique_branches)
+
+        except Exception as e:
+            flash(f"❌ Error processing report: {str(e)}", "danger")
+            return render_template("basket_summary_report.html", data=[], baskets=[], schools=unique_schools, programs=unique_programs, branches=unique_branches)
+
+    # GET method
+    return render_template("basket_summary_report.html",
+                           data=[],
+                           baskets=[],
+                           schools=unique_schools,
+                           programs=unique_programs,
+                           branches=unique_branches)
 
 if __name__ == '__main__':
     app.run(debug=True)
