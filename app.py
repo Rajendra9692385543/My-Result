@@ -893,14 +893,14 @@ def view_credits():
     if not reg_no:
         return redirect(url_for('credit_tracker_home'))
 
-    # Fetch all records of the student
+    # ✅ Fetch all records of the student
     response = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
     all_results = response.data
 
     if not all_results:
         return render_template("credit_view.html", student=None)
 
-    # Prepare student profile
+    # ✅ Extract student profile from the first result
     student = {
         "name": all_results[0].get("name", "-"),
         "reg_no": reg_no,
@@ -909,9 +909,25 @@ def view_credits():
         "branch": all_results[0].get("branch", "-"),
         "batch": all_results[0].get("batch", "-"),
         "semester": all_results[-1].get("semester", "-"),
-        "cgpa": "-",  # Optional: Calculate if needed
+        "cgpa": "-",  # You can calculate if needed
     }
 
+    # ✅ Define required credits based on program
+    PROGRAM_CREDIT_REQUIREMENTS = {
+        "BTech": 160,
+        "Btech": 160,
+        "BTech Honours": 180,
+        "Btech Honours": 180,
+        "BBA": 120,
+        "Bba": 120,
+        "BSc Ag": 172,
+        "Bsc Ag": 172
+    }
+
+    program_key = student["program"].strip().title()
+    required_credits = PROGRAM_CREDIT_REQUIREMENTS.get(program_key, 160)  # Default: 160
+
+    # ✅ Initialize semester map and counters
     semester_map = {}
     cleared_credits = 0
     backlog_credits = 0
@@ -922,7 +938,7 @@ def view_credits():
         grade = record.get("grade", "").strip().upper()
         credit_str = record.get("credits", "0").strip()
 
-        # Safely parse credits (e.g., handle "3+1")
+        # ✅ Parse credits safely (e.g., handle "3+1")
         try:
             credits = sum(float(x) for x in credit_str.split('+'))
         except:
@@ -948,9 +964,8 @@ def view_credits():
             semester_map[sem]["cleared_credits"] += credits
             cleared_credits += credits
 
-    # Final metrics
-    required_credits = 160
-    completion_percentage = round((cleared_credits / required_credits) * 100, 2)
+    # ✅ Final metrics
+    completion_percentage = round((cleared_credits / required_credits) * 100, 2) if required_credits else 0
 
     return render_template(
         "credit_view.html",
