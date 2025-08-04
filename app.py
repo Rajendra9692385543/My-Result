@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response
 import os
 import pandas as pd
 from supabase import create_client, Client
@@ -1269,6 +1269,37 @@ def basket_summary_report():
                            schools=unique_schools,
                            programs=unique_programs,
                            branches=unique_branches)
+
+#==========================
+#=== Logic for Sitemap ===
+#==========================
+@app.route('/sitemap.xml', methods=['GET'])
+def sitemap():
+    base_url = "https://my-result.onrender.com"  # ✅ Your actual live domain
+    static_routes = []
+
+    # Collect all static GET routes with no dynamic params
+    for rule in app.url_map.iter_rules():
+        if "GET" in rule.methods and len(rule.arguments) == 0 and not rule.rule.startswith("/static"):
+            url = f"{base_url}{rule.rule}"
+            static_routes.append(url)
+
+    # Build XML structure
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>']
+    xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
+
+    for url in static_routes:
+        xml.append("  <url>")
+        xml.append(f"    <loc>{url}</loc>")
+        xml.append(f"    <lastmod>{datetime.utcnow().date()}</lastmod>")
+        xml.append("    <changefreq>weekly</changefreq>")
+        xml.append("    <priority>0.8</priority>")
+        xml.append("  </url>")
+
+    xml.append("</urlset>")
+    sitemap_xml = "\n".join(xml)
+
+    return Response(sitemap_xml, mimetype='application/xml')
 
 if __name__ == '__main__':
     app.run(debug=True)
