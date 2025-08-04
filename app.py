@@ -1323,6 +1323,7 @@ def robots_txt():
         "User-agent: *\n"
         "Disallow: /admin/\n"
         "Disallow: /uploads/\n"
+        "Disallow: /static/\n"
         "Allow: /\n"
         "Sitemap: https://my-result.onrender.com/sitemap.xml",
         mimetype="text/plain"
