@@ -1301,5 +1301,9 @@ def sitemap():
 
     return Response(sitemap_xml, mimetype='application/xml')
 
+@app.route('/google53dcc92479ba04f1.html')
+def google_verify():
+    return 'google-site-verification: google53dcc92479ba04f1.html'
+
 if __name__ == '__main__':
     app.run(debug=True)
