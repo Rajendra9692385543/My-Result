@@ -1273,33 +1273,60 @@ def basket_summary_report():
 #==========================
 #=== Logic for Sitemap ===
 #==========================
-@app.route('/sitemap.xml', methods=['GET'])
+
+@app.route('/sitemap.xml')
 def sitemap():
-    base_url = "https://my-result.onrender.com"  # ✅ Your actual live domain
-    static_routes = []
+    base_url = "https://my-result.onrender.com"
 
-    # Collect all static GET routes with no dynamic params
-    for rule in app.url_map.iter_rules():
-        if "GET" in rule.methods and len(rule.arguments) == 0 and not rule.rule.startswith("/static"):
-            url = f"{base_url}{rule.rule}"
-            static_routes.append(url)
+    # Static pages to include
+    static_routes = [
+        "/", "/credit-tracker", "/topper", "/basket-summary-report"
+    ]
 
-    # Build XML structure
+    # Fetch distinct reg_nos from Supabase
+    try:
+        response = supabase.table("results").select("reg_no").execute()
+        all_reg_nos = list({row["reg_no"] for row in response.data if "reg_no" in row})
+    except Exception as e:
+        print("Supabase error in sitemap:", e)
+        all_reg_nos = []
+
+    # Start XML
     xml = ['<?xml version="1.0" encoding="UTF-8"?>']
     xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
 
-    for url in static_routes:
+    # Static URLs
+    for route in static_routes:
         xml.append("  <url>")
-        xml.append(f"    <loc>{url}</loc>")
+        xml.append(f"    <loc>{base_url}{route}</loc>")
         xml.append(f"    <lastmod>{datetime.utcnow().date()}</lastmod>")
         xml.append("    <changefreq>weekly</changefreq>")
         xml.append("    <priority>0.8</priority>")
         xml.append("  </url>")
 
-    xml.append("</urlset>")
-    sitemap_xml = "\n".join(xml)
+    # Dynamic URLs for each reg_no
+    for reg_no in all_reg_nos:
+        for route in ["view-credits", "view-basket-subjects", "result"]:
+            xml.append("  <url>")
+            xml.append(f"    <loc>{base_url}/{route}?reg_no={reg_no}</loc>")
+            xml.append(f"    <lastmod>{datetime.utcnow().date()}</lastmod>")
+            xml.append("    <changefreq>weekly</changefreq>")
+            xml.append("    <priority>0.6</priority>")
+            xml.append("  </url>")
 
-    return Response(sitemap_xml, mimetype='application/xml')
+    xml.append("</urlset>")
+    return Response("\n".join(xml), mimetype="application/xml")
+
+@app.route('/robots.txt')
+def robots_txt():
+    return Response(
+        "User-agent: *\n"
+        "Disallow: /admin/\n"
+        "Disallow: /uploads/\n"
+        "Allow: /\n"
+        "Sitemap: https://my-result.onrender.com/sitemap.xml",
+        mimetype="text/plain"
+    )
 
 @app.route('/google53dcc92479ba04f1.html')
 def google_verify():
