@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About | MyResult</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-color: #f8f9fa;
+    }
+    .about-header {
+      background: linear-gradient(135deg, #4a90e2, #007bff);
+      color: white;
+      padding: 3rem 1rem;
+      text-align: center;
+    }
+    .card {
+      border-radius: 15px;
+      box-shadow: 0px 4px 10px rgba(0,0,0,0.1);
+      margin-bottom: 2rem;
+    }
+    .section-title {
+      border-left: 4px solid #007bff;
+      padding-left: 10px;
+      font-weight: bold;
+      margin-bottom: 1rem;
+    }
+    footer {
+      background: #222;
+      color: white;
+      text-align: center;
+      padding: 1rem;
+      margin-top: 3rem;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="about-header">
+    <h1>🎓 MyResult</h1>
+    <p class="lead">Student Result & Credit Tracker Portal</p>
+  </div>
+
+  <!-- Main Content -->
+  <div class="container my-5">
+    
+    <!-- Features -->
+    <div class="card p-4">
+      <h3 class="section-title">🚀 Features</h3>
+      <ul>
+        <li><strong>Student Result Viewer</strong> – Enter registration number & semester to view detailed results with CGPA chart.</li>
+        <li><strong>Credit Tracker</strong> – Semester-wise cleared, backlog, pending credits with charts & progress bar.</li>
+        <li><strong>Admin Panel</strong> – Secure login, bulk Excel uploads, upload history tracking.</li>
+      </ul>
+    </div>
+
+    <!-- Tech Stack -->
+    <div class="card p-4">
+      <h3 class="section-title">🛠️ Tech Stack</h3>
+      <table class="table table-bordered">
+        <thead class="table-primary">
+          <tr>
+            <th>Layer</th>
+            <th>Tech</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Frontend</td><td>HTML, Bootstrap 5</td></tr>
+          <tr><td>Backend</td><td>Flask (Python)</td></tr>
+          <tr><td>Database</td><td>Supabase (PostgreSQL)</td></tr>
+          <tr><td>Charts</td><td>Chart.js</td></tr>
+          <tr><td>File Upload</td><td>Excel (.xlsx via Pandas)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Credit Logic -->
+    <div class="card p-4">
+      <h3 class="section-title">📈 Credit Calculation Logic</h3>
+      <p>
+        Total credits = sum of all course credits.  
+        Cleared credits are those with grades other than <code>F</code> or <code>S</code>.  
+        Backlogs are courses with grade <code>F</code> or <code>S</code>.  
+        Pending credits = required – (cleared + backlog).  
+        Visualized using pie charts and progress bars.
+      </p>
+    </div>
+
+    <!-- Future Enhancements -->
+    <div class="card p-4">
+      <h3 class="section-title">💡 Future Enhancements</h3>
+      <ul>
+        <li>Export results as PDF</li>
+        <li>Add re-exam tracking</li>
+        <li>Student login panel</li>
+        <li>Dynamic credit requirements per branch/program</li>
+      </ul>
+    </div>
+
+    <!-- Creator -->
+    <div class="card p-4">
+      <h3 class="section-title">🧑‍💻 Created By</h3>
+      <p><strong>Rajendra</strong></p>
+      <p>💌 rajendradas5543@gmail.com</p>
+      <p>🌐 GitHub: <a href="https://github.com/Rajendra9692385543" target="_blank">Rajendra9692385543</a></p>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <footer>
+    <p>© 2025 MyResult. All Rights Reserved.</p>
+  </footer>
+
+</body>
+</html>

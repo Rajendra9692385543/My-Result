@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import os
 import pandas as pd
 from supabase import create_client, Client
+import markdown2
 
 # ==========================
 # Supabase Config
@@ -1328,6 +1329,10 @@ def robots_txt():
         "Sitemap: https://my-result.onrender.com/sitemap.xml",
         mimetype="text/plain"
     )
+
+@app.route("/about")
+def about():
+    return render_template("about.html")
 
 @app.route('/google53dcc92479ba04f1.html')
 def google_verify():
