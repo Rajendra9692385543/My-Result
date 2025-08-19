@@ -1214,13 +1214,16 @@ def basket_summary_report():
                 "total": 0.0
             })
 
+            # ✅ Track only the latest attempt per subject per student
+            student_subjects = defaultdict(dict)
+
             for row in student_results:
                 reg_no = row.get("reg_no", "").strip()
                 name = row.get("name", "-")
                 br = row.get("branch", "-")
-
                 subject_code = row.get("subject_code", "").strip()
                 grade = row.get("grade", "").strip().upper()
+                semester = int(row.get("semester", 0) or 0)
 
                 student = student_data[reg_no]
                 student["name"] = name
@@ -1244,11 +1247,25 @@ def basket_summary_report():
                 credits = matched["credits"]
                 basket = matched["basket"]
 
-                if grade in ["F", "S"]:
-                    student["backlog_credits"] += credits
-                else:
-                    student["baskets"][basket] += credits
-                    student["total"] += credits
+                # ✅ Keep only latest attempt
+                prev = student_subjects[reg_no].get(subject_code)
+                if not prev or semester > prev["semester"]:
+                    student_subjects[reg_no][subject_code] = {
+                        "grade": grade,
+                        "credits": credits,
+                        "basket": basket,
+                        "semester": semester
+                    }
+
+            # ✅ Now aggregate from deduped subjects
+            for reg_no, subjects in student_subjects.items():
+                student = student_data[reg_no]
+                for subject_code, info in subjects.items():
+                    if info["grade"] in ["F", "S"]:
+                        student["backlog_credits"] += info["credits"]
+                    else:
+                        student["baskets"][info["basket"]] += info["credits"]
+                        student["total"] += info["credits"]
 
             final_data = sorted(student_data.values(), key=lambda x: x["reg_no"])
 
@@ -1270,6 +1287,7 @@ def basket_summary_report():
                            schools=unique_schools,
                            programs=unique_programs,
                            branches=unique_branches)
+
 
 #==========================
 #=== Logic for Sitemap ===
