@@ -3,6 +3,8 @@ import os
 import pandas as pd
 from supabase import create_client, Client
 import markdown2
+import io
+from flask import make_response
 
 # ==========================
 # Supabase Config
@@ -1269,6 +1271,10 @@ def basket_summary_report():
 
             final_data = sorted(student_data.values(), key=lambda x: x["reg_no"])
 
+            # ✅ Save in session for downloads
+            session["basket_summary_data"] = final_data
+            session["basket_labels"] = basket_labels
+
             return render_template("basket_summary_report.html",
                                    data=final_data,
                                    baskets=basket_labels,
@@ -1280,13 +1286,111 @@ def basket_summary_report():
             flash(f"❌ Error processing report: {str(e)}", "danger")
             return render_template("basket_summary_report.html", data=[], baskets=[], schools=unique_schools, programs=unique_programs, branches=unique_branches)
 
-    # GET method
+    # GET method → clear old session cache
+    session.pop("basket_summary_data", None)
+    session.pop("basket_labels", None)
     return render_template("basket_summary_report.html",
                            data=[],
                            baskets=[],
                            schools=unique_schools,
                            programs=unique_programs,
                            branches=unique_branches)
+
+import io
+from flask import make_response, session
+from reportlab.lib.pagesizes import landscape, A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+
+@app.route("/download_basket_excel")
+def download_basket_excel():
+    data = session.get("basket_summary_data", [])
+    baskets = session.get("basket_labels", [])
+
+    if not data:
+        return "No data to export", 400
+
+    # Convert to DataFrame
+    rows = []
+    for idx, student in enumerate(data, 1):
+        row = {
+            "Sl.No": idx,
+            "Name": student["name"],
+            "Registration No": student["reg_no"],
+            "Department": student["branch"],
+        }
+        for basket in baskets:
+            row[basket] = student["baskets"].get(basket, 0)
+        row["Total Credits"] = student["total"]
+        row["Backlog Credits"] = student["backlog_credits"]
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Basket Summary")
+
+    output.seek(0)
+    response = make_response(output.read())
+    response.headers["Content-Disposition"] = "attachment; filename=basket_summary.xlsx"
+    response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return response
+
+
+@app.route("/download_basket_pdf")
+def download_basket_pdf():
+    data = session.get("basket_summary_data", [])
+    baskets = session.get("basket_labels", [])
+
+    if not data:
+        return "No data to export", 400
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # Build table header
+    header = ["Sl.No", "Name", "Registration No", "Department"] + baskets + ["Total Credits", "Backlog Credits"]
+
+    # Build rows
+    table_data = [header]
+    for idx, student in enumerate(data, 1):
+        row = [
+            idx,
+            student["name"],
+            student["reg_no"],
+            student["branch"],
+        ]
+        for basket in baskets:
+            row.append(student["baskets"].get(basket, 0))
+        row.append(student["total"])
+        row.append(student["backlog_credits"])
+        table_data.append(row)
+
+    # Create table
+    table = Table(table_data, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.whitesmoke),
+    ]))
+
+    elements.append(Paragraph("📊 Basket Summary Report", styles["Title"]))
+    elements.append(table)
+    doc.build(elements)
+
+    buffer.seek(0)
+    response = make_response(buffer.read())
+    response.headers["Content-Disposition"] = "attachment; filename=basket_summary.pdf"
+    response.headers["Content-Type"] = "application/pdf"
+    return response
 
 
 #==========================

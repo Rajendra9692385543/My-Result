@@ -66,7 +66,20 @@
         </div>
       </div>
     </form>
-
+    {% if data %}
+    <div class="d-flex justify-content-end mb-2">
+      <div class="dropdown">
+        <button class="btn btn-success dropdown-toggle" type="button" id="downloadMenu" data-bs-toggle="dropdown" aria-expanded="false">
+          ⬇ Download
+        </button>
+        <ul class="dropdown-menu" aria-labelledby="downloadMenu">
+          <li><a class="dropdown-item" href="{{ url_for('download_basket_excel') }}">Download as Excel</a></li>
+          <li><a class="dropdown-item" href="{{ url_for('download_basket_pdf') }}">Download as PDF</a></li>
+        </ul>
+      </div>
+    </div>
+{% endif %}
+   
     {% if data %}
     <div class="table-responsive">
       <table class="table table-bordered table-sm align-middle">
