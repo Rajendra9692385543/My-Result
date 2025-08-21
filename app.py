@@ -2,9 +2,16 @@ from flask import Flask, render_template, request, redirect, url_for, session, f
 import os
 import pandas as pd
 from supabase import create_client, Client
-import markdown2
 import io
 from flask import make_response
+from reportlab.lib.pagesizes import landscape, A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+from werkzeug.security import check_password_hash
+from werkzeug.security import generate_password_hash
+from datetime import datetime
+from collections import defaultdict
 
 # ==========================
 # Supabase Config
@@ -71,7 +78,6 @@ school_program_map = {
     "School of Veterinary and Animal Sciences": ["BVSc"],
     "School of Nursing": ["BSc Nursing"]
 }
-
 
 # ==========================
 # Helpers
@@ -167,8 +173,6 @@ def result():
                            branch=branch,
                            academic_year=academic_year)
 
-from werkzeug.security import check_password_hash
-
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
@@ -209,8 +213,6 @@ def admin_login():
             return redirect(url_for('admin_login'))
 
     return render_template("admin_login_password.html")
-
-from werkzeug.security import generate_password_hash
 
 @app.route('/admin/manage-admins', methods=['GET', 'POST'])
 def manage_admins():
@@ -258,8 +260,6 @@ def manage_admins():
         flash(f"❌ Failed to fetch admins: {e}")
 
     return render_template("manage_admins.html", admins=admins)
-
-from datetime import datetime
 
 @app.route('/admin/add-admin', methods=['POST'])
 def add_admin():
@@ -452,8 +452,6 @@ def update_subject():
 
     return redirect(url_for('manage_basket'))
 
-import pandas as pd
-
 @app.route('/admin/upload-subjects', methods=['POST'])
 def upload_subjects():
     if 'admin' not in session:
@@ -516,8 +514,6 @@ def admin_logout():
     session.pop('admin_role', None)
     flash("You have been logged out.")
     return redirect(url_for('admin_login'))
-
-from datetime import datetime
 
 def generate_academic_years(start_year=2020):
     current_year = datetime.now().year
@@ -591,7 +587,6 @@ def admin_dashboard():
         uploads=uploads,
         academic_years=academic_years
     )
-
 
 @app.route('/admin/upload_insert', methods=['POST'])
 def upload_insert():
@@ -796,8 +791,6 @@ def get_semesters():
     except Exception as e:
         return {'error': str(e), 'semesters': []}
 
-from datetime import datetime
-
 @app.route('/topper', methods=['GET', 'POST'])
 def topper():
     academic_years = [f"{y}-{y+1}" for y in range(2020, datetime.now().year + 1)]
@@ -883,8 +876,8 @@ def calculate_gpa_from_grades(grades):
     return round(sum(points) / len(points), 2) if points else 0.0
 
 # ==========================
-
 # Credit Tracker Logic and Routes
+# ==========================
 
 @app.route('/credit-tracker')
 def credit_tracker_home():
@@ -980,8 +973,9 @@ def view_credits():
         backlogs=backlogs,
         backlog_credits=backlog_credits
     )
-
+#=============================
 # Basket Summary Logic and Route
+#=============================
 
 @app.route('/view-basket-subjects')
 def view_basket_subjects():
@@ -1125,9 +1119,6 @@ def view_basket_subjects():
         basket_data=sorted_baskets,
         basket_requirements=basket_requirements
     )
-
-from collections import defaultdict
-from flask import request, render_template, flash
 
 @app.route('/basket-summary-report', methods=['GET', 'POST'])
 def basket_summary_report():
@@ -1296,13 +1287,6 @@ def basket_summary_report():
                            programs=unique_programs,
                            branches=unique_branches)
 
-import io
-from flask import make_response, session
-from reportlab.lib.pagesizes import landscape, A4
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
-
 @app.route("/download_basket_excel")
 def download_basket_excel():
     data = session.get("basket_summary_data", [])
@@ -1337,7 +1321,6 @@ def download_basket_excel():
     response.headers["Content-Disposition"] = "attachment; filename=basket_summary.xlsx"
     response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     return response
-
 
 @app.route("/download_basket_pdf")
 def download_basket_pdf():
@@ -1391,7 +1374,6 @@ def download_basket_pdf():
     response.headers["Content-Disposition"] = "attachment; filename=basket_summary.pdf"
     response.headers["Content-Type"] = "application/pdf"
     return response
-
 
 #==========================
 #=== Logic for Sitemap ===
