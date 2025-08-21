@@ -1,17 +1,17 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response
-import os
+import os, io, re
 import pandas as pd
 from supabase import create_client, Client
-import io
-from flask import make_response
-from reportlab.lib.pagesizes import landscape, A4
+from flask import make_response, send_file
+from reportlab.lib.pagesizes import landscape, A4, letter
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.pdfgen import canvas
 from reportlab.lib.styles import getSampleStyleSheet
-from werkzeug.security import check_password_hash
-from werkzeug.security import generate_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime
 from collections import defaultdict
+import xlsxwriter
 
 # ==========================
 # Supabase Config
@@ -1103,13 +1103,26 @@ def view_basket_subjects():
 
     if unmatched > 0:
         flash(f"{unmatched} subject(s) did not match any CBCS basket mapping and were ignored.", "info")
+    
+    # ✅ Roman numeral to integer helper (properly indented inside function)
+    def roman_to_int(roman):
+        roman_map = {
+            "I": 1, "II": 2, "III": 3, "IV": 4, "V": 5,
+            "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10
+        }
+        return roman_map.get(roman.upper(), None)
 
-    # ✅ Sort baskets like I, II, III, IV...
+    # ✅ Sort baskets (works for both Roman & numeric)
     def basket_order_key(basket_name):
-        try:
-            return int(basket_name.split()[-1])
-        except:
-            return 999  # Unknown baskets at end
+        parts = basket_name.strip().split()
+        if len(parts) > 1:
+            roman_or_num = parts[-1]
+            if roman_or_num.isdigit():
+                return int(roman_or_num)
+            val = roman_to_int(roman_or_num)
+            if val:
+                return val
+        return 999
 
     sorted_baskets = dict(sorted(baskets.items(), key=lambda x: basket_order_key(x[0])))
 
@@ -1118,6 +1131,336 @@ def view_basket_subjects():
         student=student,
         basket_data=sorted_baskets,
         basket_requirements=basket_requirements
+    )
+
+@app.route("/download_subject_excel/<reg_no>")
+def download_subject_excel(reg_no):
+    import io, re, xlsxwriter
+    from flask import send_file
+
+    # 🔹 Fetch student results
+    results_resp = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    results = results_resp.data
+    if not results:
+        return "No data to export", 400
+
+    # 🔹 Extract student info
+    student = {
+        "name": results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "school": results[0].get("school", "-"),
+        "branch": results[0].get("branch", "-"),
+        "program": results[0].get("program", "-"),
+        "batch": results[0].get("batch", "-"),
+    }
+
+    # ✅ Normalize program/branch
+    program = student["program"].strip().title() if student["program"] else "BTech"
+    branch = student["branch"].strip().lower().replace(" ", "") if student["branch"] else "all"
+
+    # ✅ CBCS basket mappings
+    cbcs_resp = supabase.table("cbcs_basket").select("*").execute()
+    cbcs_map = cbcs_resp.data
+    subject_basket_map = {}
+    for row in cbcs_map:
+        sub_code = row.get("subject_code", "").strip()
+        cbcs_prog = row.get("program", "").strip().title()
+        cbcs_branch = row.get("branch", "").strip().lower().replace(" ", "")
+        match = (
+            (cbcs_prog == program and cbcs_branch == branch) or
+            (cbcs_prog == program and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == branch)
+        )
+        if sub_code and match:
+            subject_basket_map[sub_code] = row.get("basket", "Unknown")
+
+    # ✅ Build baskets
+    baskets = {}
+    all_backlogs = []
+    for row in results:
+        sub_code = row.get("subject_code", "").strip()
+        basket = subject_basket_map.get(sub_code, "Unknown")
+        sub_data = {
+            "basket": basket,
+            "subject_code": row.get("subject_code"),
+            "subject_name": row.get("subject_name"),
+            "credits": row.get("credits"),
+            "grade": row.get("grade"),
+            "semester": row.get("semester"),
+        }
+        baskets.setdefault(basket, []).append(sub_data)
+        if row.get("grade", "").upper() in ["F", "S"]:
+            all_backlogs.append(sub_data)
+
+    # ✅ Helpers
+    def roman_to_int(roman):
+        roman_map = {"I":1,"II":2,"III":3,"IV":4,"V":5,"VI":6,"VII":7,"VIII":8,"IX":9,"X":10}
+        return roman_map.get(roman.upper(), None)
+
+    def basket_order_key(basket_name):
+        match = re.search(r'(?:Basket\s*)([IVXLCDM]+|\d+)$', basket_name.strip(), re.IGNORECASE)
+        if match:
+            val = match.group(1)
+            if val.isdigit(): return int(val)
+            roman_val = roman_to_int(val.upper())
+            if roman_val: return roman_val
+        return 0
+
+    # 🔹 Generate Excel
+    output = io.BytesIO()
+    workbook = xlsxwriter.Workbook(output, {"in_memory": True})
+    worksheet = workbook.add_worksheet("Subjects")
+
+    # Formats
+    header_fmt = workbook.add_format({"bold": True, "bg_color": "#ADD8E6", "border": 1, "align": "center", "valign": "vcenter"})
+    backlog_fmt = workbook.add_format({"bg_color": "#FDE2E2", "border": 1, "text_wrap": True, "align": "center", "valign": "vcenter"})
+    normal_fmt = workbook.add_format({"border": 1, "text_wrap": True, "align": "center", "valign": "vcenter"})
+    title_fmt = workbook.add_format({"bold": True, "font_size": 14, "align": "center"})
+    subheader_fmt = workbook.add_format({"bold": True, "font_color": "blue", "underline": 1, "align": "center"})
+    student_info_fmt = workbook.add_format({"bold": True, "bg_color": "#E8F4F8", "border": 1, "align": "center", "valign": "vcenter", "text_wrap": True})
+
+    row = 0
+    worksheet.merge_range(row, 0, row, 5, f"Subject Report - {student['reg_no']}", title_fmt)
+    row += 2
+
+    # Merge student info cells across all columns and center
+    info_labels = ["Name", "Reg No", "School", "Branch", "Program", "Batch"]
+    for label in info_labels:
+        value = student[label.lower().replace(" ", "_")]
+        cell_text = f"{label}: {value}"
+        worksheet.merge_range(row, 0, row, 5, cell_text, student_info_fmt)
+        # dynamic row height
+        row_height = max(15, min(len(cell_text)//30 * 15 + 15, 45))
+        worksheet.set_row(row, row_height)
+        row += 1
+    row += 1
+
+    # Column headers
+    headers = ["Basket", "Code", "Name", "Credits", "Grade", "Sem"]
+
+    # Iterate sorted baskets
+    for basket, subs in sorted(baskets.items(), key=lambda x: basket_order_key(x[0])):
+        worksheet.merge_range(row, 0, row, 5, f"{basket} - Subjects", subheader_fmt)
+        row += 1
+        for col, h in enumerate(headers):
+            worksheet.write(row, col, h, header_fmt)
+        row += 1
+        subs_sorted = sorted(subs, key=lambda x: (str(x.get("semester", "")), x.get("subject_code", "")))
+        for sub in subs_sorted:
+            fmt = backlog_fmt if sub["grade"].upper() in ["F", "S"] else normal_fmt
+            worksheet.write(row, 0, sub["basket"], fmt)
+            worksheet.write(row, 1, sub["subject_code"], fmt)
+            worksheet.write(row, 2, sub["subject_name"], fmt)
+            worksheet.write(row, 3, sub["credits"], fmt)
+            worksheet.write(row, 4, sub["grade"], fmt)
+            worksheet.write(row, 5, sub["semester"], fmt)
+            row += 1
+        row += 2
+
+    # Overall Backlog Summary
+    if all_backlogs:
+        worksheet.merge_range(row, 0, row, 5, "Overall Backlog Summary", subheader_fmt)
+        row += 1
+        for col, h in enumerate(headers):
+            worksheet.write(row, col, h, header_fmt)
+        row += 1
+        for sub in all_backlogs:
+            worksheet.write(row, 0, sub["basket"], backlog_fmt)
+            worksheet.write(row, 1, sub["subject_code"], backlog_fmt)
+            worksheet.write(row, 2, sub["subject_name"], backlog_fmt)
+            worksheet.write(row, 3, sub["credits"], backlog_fmt)
+            worksheet.write(row, 4, sub["grade"], backlog_fmt)
+            worksheet.write(row, 5, sub["semester"], backlog_fmt)
+            row += 1
+
+    # Adjust column widths
+    worksheet.set_column("A:A", 12)
+    worksheet.set_column("B:B", 18)
+    worksheet.set_column("C:C", 50)
+    worksheet.set_column("D:D", 10)
+    worksheet.set_column("E:E", 10)
+    worksheet.set_column("F:F", 8)
+
+    workbook.close()
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name=f"{reg_no}_subjects.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+@app.route("/download_subject_pdf/<reg_no>")
+def download_subject_pdf(reg_no):
+
+    # 🔹 Fetch student results
+    results_resp = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    results = results_resp.data
+    if not results:
+        return "No data to export", 400
+
+    # 🔹 Extract student info
+    student = {
+        "name": results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "school": results[0].get("school", "-"),
+        "branch": results[0].get("branch", "-"),
+        "program": results[0].get("program", "-"),
+        "batch": results[0].get("batch", "-"),
+    }
+
+    # ✅ Normalize program/branch
+    program = student["program"].strip().title() if student["program"] else "BTech"
+    branch = student["branch"].strip().lower().replace(" ", "") if student["branch"] else "all"
+
+    # ✅ CBCS basket mappings
+    cbcs_resp = supabase.table("cbcs_basket").select("*").execute()
+    cbcs_map = cbcs_resp.data
+
+    subject_basket_map = {}
+    for row in cbcs_map:
+        sub_code = row.get("subject_code", "").strip()
+        cbcs_prog = row.get("program", "").strip().title()
+        cbcs_branch = row.get("branch", "").strip().lower().replace(" ", "")
+        match = (
+            (cbcs_prog == program and cbcs_branch == branch) or
+            (cbcs_prog == program and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == branch)
+        )
+        if sub_code and match:
+            subject_basket_map[sub_code] = row.get("basket", "Unknown")
+
+    # ✅ Build baskets
+    baskets = {}
+    all_backlogs = []
+    for row in results:
+        sub_code = row.get("subject_code", "").strip()
+        basket = subject_basket_map.get(sub_code, "Unknown")
+        sub_data = {
+            "basket": basket,
+            "subject_code": row.get("subject_code"),
+            "subject_name": row.get("subject_name"),
+            "credits": row.get("credits"),
+            "grade": row.get("grade"),
+            "semester": row.get("semester"),
+        }
+        baskets.setdefault(basket, []).append(sub_data)
+        if row.get("grade", "").upper() in ["F", "S"]:
+            all_backlogs.append(sub_data)
+
+    # ✅ Helpers for basket sorting
+    def roman_to_int(roman):
+        roman_map = {"I":1,"II":2,"III":3,"IV":4,"V":5,"VI":6,"VII":7,"VIII":8,"IX":9,"X":10}
+        return roman_map.get(roman.upper(), None)
+
+    def basket_order_key(basket_name):
+        match = re.search(r'(?:Basket\s*)([IVXLCDM]+|\d+)$', basket_name.strip(), re.IGNORECASE)
+        if match:
+            val = match.group(1)
+            if val.isdigit(): return int(val)
+            roman_val = roman_to_int(val.upper())
+            if roman_val: return roman_val
+        return 0
+
+    # 🔹 PDF Setup
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    elements = []
+    styles = getSampleStyleSheet()
+    normal_style = styles["Normal"]
+
+    # Title
+    elements.append(Paragraph(f"Subject Report - {student['reg_no']}", styles["Title"]))
+    elements.append(Spacer(1, 12))
+
+    # Student Info
+    student_info = f"""
+    <b>Name:</b> {student['name']}<br/>
+    <b>Reg No:</b> {student['reg_no']}<br/>
+    <b>School:</b> {student['school']}<br/>
+    <b>Branch:</b> {student['branch']}<br/>
+    <b>Program:</b> {student['program']}<br/>
+    <b>Batch:</b> {student['batch']}<br/>
+    """
+    elements.append(Paragraph(student_info, styles["Normal"]))
+    elements.append(Spacer(1, 12))
+
+    # Column widths (name column wider for wrapping)
+    col_widths = [70, 70, 220, 60, 50, 40]
+
+    def wrap_row(row):
+        """Convert strings into Paragraph for wrapping"""
+        wrapped = []
+        for item in row:
+            if isinstance(item, str):
+                wrapped.append(Paragraph(item, normal_style))
+            else:
+                wrapped.append(item)
+        return wrapped
+
+    # Basket-wise subjects (sorted)
+    for basket, subs in sorted(baskets.items(), key=lambda x: basket_order_key(x[0])):
+        elements.append(Paragraph(f"{basket} - Subjects", styles["Heading3"]))
+
+        table_data = [["Basket", "Code", "Name", "Credits", "Grade", "Sem"]]
+        row_styles = []
+
+        # Sort subjects by semester then code
+        subs_sorted = sorted(subs, key=lambda x: (str(x.get("semester", "")), x.get("subject_code", "")))
+
+        for i, sub in enumerate(subs_sorted, start=1):
+            row = [
+                sub["basket"], sub["subject_code"], sub["subject_name"],
+                sub["credits"], sub["grade"], sub["semester"]
+            ]
+            table_data.append(row)
+            if sub["grade"].upper() in ["F", "S"]:
+                row_styles.append(("BACKGROUND", (0, i), (-1, i), colors.lavenderblush))
+
+        # Wrap text
+        table_data = [wrap_row(r) for r in table_data]
+
+        table = Table(table_data, repeatRows=1, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightblue),
+            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ] + row_styles))
+
+        elements.append(table)
+        elements.append(Spacer(1, 18))
+
+    # Overall Backlog Summary
+    if all_backlogs:
+        elements.append(Paragraph("Overall Backlog Summary", styles["Heading2"]))
+        summary_data = [["Basket", "Code", "Name", "Credits", "Grade", "Sem"]]
+        for sub in all_backlogs:
+            summary_data.append([sub["basket"], sub["subject_code"], sub["subject_name"],
+                                 sub["credits"], sub["grade"], sub["semester"]])
+        summary_data = [wrap_row(r) for r in summary_data]
+
+        table = Table(summary_data, repeatRows=1, colWidths=col_widths)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.red),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        elements.append(table)
+
+    # Build PDF
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+
+    return send_file(
+        io.BytesIO(pdf),
+        as_attachment=True,
+        download_name=f"{reg_no}_subjects.pdf",
+        mimetype="application/pdf"
     )
 
 @app.route('/basket-summary-report', methods=['GET', 'POST'])

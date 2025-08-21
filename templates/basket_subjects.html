@@ -43,6 +43,25 @@
       <p><strong>Batch:</strong> {{ student.batch }}</p>
     </div>
   </div>
+<div class="d-flex justify-content-end mb-3">
+  <div class="dropdown">
+    <button class="btn btn-success dropdown-toggle" type="button" id="downloadMenu" data-bs-toggle="dropdown" aria-expanded="false">
+      ⬇ Download
+    </button>
+    <ul class="dropdown-menu" aria-labelledby="downloadMenu">
+      <li>
+        <a class="dropdown-item" href="{{ url_for('download_subject_excel', reg_no=student.reg_no) }}">
+          Download as Excel
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item" href="{{ url_for('download_subject_pdf', reg_no=student.reg_no) }}">
+          Download as PDF
+        </a>
+      </li>
+    </ul>
+  </div>
+</div>
 
 <!-- 📊 Basket-wise Summary Overview -->
 <div class="card mb-4 shadow-sm border-primary">
@@ -311,5 +330,7 @@ function toggleBarChart() {
 }
 </script>
 {% endif %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
 </body>
 </html>

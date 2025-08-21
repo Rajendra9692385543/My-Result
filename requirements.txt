@@ -6,3 +6,4 @@ gunicorn==23.0.0
 supabase
 markdown2
 reportlab
+xlsxwriter
