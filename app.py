@@ -12,7 +12,9 @@ from reportlab.lib.styles import getSampleStyleSheet
 from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime
 from collections import defaultdict
-import xlsxwriter
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ==========================
 # Supabase Config
@@ -1256,6 +1258,152 @@ def download_semester_cards():
 
     return Response(pdf, mimetype='application/pdf',
         headers={"Content-Disposition": "attachment;filename=semester_report.pdf"})
+
+@app.route('/download-credits-excel')
+def download_semester_excel():
+    reg_no = request.args.get('reg_no', '').strip()
+    if not reg_no:
+        return redirect(url_for('credit_tracker_home'))
+
+    # ✅ Fetch all records of the student
+    response = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    all_results = response.data
+
+    if not all_results:
+        return "No results found", 404
+
+    # ✅ Extract student profile
+    student = {
+        "name": all_results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "program": all_results[0].get("program", "-"),
+        "school": all_results[0].get("school", "-"),
+        "branch": all_results[0].get("branch", "-"),
+        "batch": all_results[0].get("batch", "-"),
+    }
+
+    # ✅ Group into semesters + collect backlogs
+    semester_map = {}
+    backlog_subjects = []
+    for record in all_results:
+        sem = record.get("semester", "Unknown")
+        grade = record.get("grade", "").strip().upper()
+        if sem not in semester_map:
+            semester_map[sem] = []
+        semester_map[sem].append(record)
+
+        if grade in ["F", "S"]:
+            backlog_subjects.append(record)
+
+    # ✅ Create Excel workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Credit Report"
+
+    # Column widths
+    col_widths = [15, 50, 15, 10]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    # Styles
+    bold_font = Font(bold=True)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    border = Border(
+        left=Side(style="thin"),
+        right=Side(style="thin"),
+        top=Side(style="thin"),
+        bottom=Side(style="thin"),
+    )
+    header_fill = PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+    backlog_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # light red
+
+    row_num = 1
+
+    # ✅ Student Info
+    for field, value in student.items():
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4)
+        ws.cell(row=row_num, column=1, value=f"{field.title()}: {value}").font = bold_font
+        ws.cell(row=row_num, column=1).alignment = center
+        row_num += 1
+    row_num += 1
+
+    # ✅ Semester-wise data
+    for sem, subjects in sorted(semester_map.items()):
+        # Semester Heading
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4)
+        ws.cell(row=row_num, column=1, value=f"Semester {sem}").font = bold_font
+        ws.cell(row=row_num, column=1).alignment = center
+        row_num += 1
+
+        # Table Header
+        headers = ["Subject Code", "Subject Name", "Credits", "Grade"]
+        for col, head in enumerate(headers, 1):
+            c = ws.cell(row=row_num, column=col, value=head)
+            c.font = bold_font
+            c.alignment = center
+            c.fill = header_fill
+            c.border = border
+        row_num += 1
+
+        # Table Rows
+        for sub in subjects:
+            subject_code = sub.get("subject_code", "-")
+            subject_name = sub.get("subject_name", "-")
+            credit_str = sub.get("credits", "0")
+            grade = sub.get("grade", "-")
+
+            for col, val in enumerate([subject_code, subject_name, credit_str, grade], 1):
+                c = ws.cell(row=row_num, column=col, value=val)
+                c.alignment = center
+                c.border = border
+                if grade in ["F", "S"]:  # highlight backlog subjects
+                    c.fill = backlog_fill
+
+            row_num += 1
+
+        row_num += 2  # Gap before next semester
+
+    # ✅ Overall Backlog Table
+    if backlog_subjects:
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=4)
+        ws.cell(row=row_num, column=1, value="Overall Backlog Subjects").font = bold_font
+        ws.cell(row=row_num, column=1).alignment = center
+        row_num += 1
+
+        headers = ["Subject Code", "Subject Name", "Credits", "Grade", "Semester"]
+        for col, head in enumerate(headers, 1):
+            c = ws.cell(row=row_num, column=col, value=head)
+            c.font = bold_font
+            c.alignment = center
+            c.fill = header_fill
+            c.border = border
+        row_num += 1
+
+        for sub in backlog_subjects:
+            subject_code = sub.get("subject_code", "-")
+            subject_name = sub.get("subject_name", "-")
+            credit_str = sub.get("credits", "0")
+            grade = sub.get("grade", "-")
+            sem = sub.get("semester", "-")
+
+            for col, val in enumerate([subject_code, subject_name, credit_str, grade, sem], 1):
+                c = ws.cell(row=row_num, column=col, value=val)
+                c.alignment = center
+                c.border = border
+                c.fill = backlog_fill
+            row_num += 1
+
+    # ✅ Save to memory
+    file_stream = BytesIO()
+    wb.save(file_stream)
+    file_stream.seek(0)
+
+    return send_file(
+        file_stream,
+        as_attachment=True,
+        download_name=f"{student['reg_no']}_credits_report.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 #=============================
 # Basket Summary Logic and Route

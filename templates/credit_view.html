@@ -38,9 +38,34 @@
         </div>
     </div>
 </div>
-<a href="{{ url_for('view_basket_subjects', reg_no=student.reg_no) }}" class="btn btn-primary mt-2">📋 View Basket Summary</a>
-<a href="{{ url_for('download_semester_cards', reg_no=student.reg_no) }}" 
-       class="btn btn-success mt-2">⬇️ Download Semester Cards</a>
+<div class="d-flex gap-2 mt-2">
+  <!-- View Basket Summary -->
+  <a href="{{ url_for('view_basket_subjects', reg_no=student.reg_no) }}" 
+     class="btn btn-primary">
+    📋 View Basket Summary
+  </a>
+
+  <!-- Download Dropdown -->
+  <div class="dropdown">
+    <button class="btn btn-success dropdown-toggle" type="button" 
+            id="downloadDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+      ⬇️ Download Semester Report
+    </button>
+    <ul class="dropdown-menu" aria-labelledby="downloadDropdown">
+      <li>
+        <a class="dropdown-item" href="{{ url_for('download_semester_cards', reg_no=student.reg_no) }}">
+          📄 Download PDF
+        </a>
+      </li>
+      <li>
+        <a class="dropdown-item" href="{{ url_for('download_semester_excel', reg_no=student.reg_no) }}">
+          📊 Download Excel
+        </a>
+      </li>
+    </ul>
+  </div>
+</div>
+
 <!-- Credit Summary -->
 <div class="card p-4 mb-4 shadow-sm">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -215,5 +240,6 @@ function renderPieChart(sem) {
     });
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
