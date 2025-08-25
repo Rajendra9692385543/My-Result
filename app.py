@@ -896,90 +896,6 @@ def get_semesters():
     except Exception as e:
         return {'error': str(e), 'semesters': []}
 
-@app.route('/topper', methods=['GET', 'POST'])
-def topper():
-    academic_years = [f"{y}-{y+1}" for y in range(2020, datetime.now().year + 1)]
-
-    if request.method == 'POST':
-        school = request.form['school']
-        branch = request.form['branch']
-        semester = request.form['semester']
-        academic_year = request.form['academic_year']
-
-        # Step 1: Fetch all unique students from Supabase
-        response = supabase.table("results") \
-            .select("reg_no, name, school, branch, semester, academic_year") \
-            .eq("school", school) \
-            .eq("branch", branch) \
-            .eq("semester", semester) \
-            .eq("academic_year", academic_year) \
-            .execute()
-
-        students = response.data
-        toppers = []
-
-        for student in students:
-            reg_no = student['reg_no']
-
-            # Get SGPA: All grades for this reg_no & semester
-            sgpa_response = supabase.table("results") \
-                .select("grade") \
-                .eq("reg_no", reg_no) \
-                .eq("semester", semester) \
-                .execute()
-            sgpa_grades = [row['grade'] for row in sgpa_response.data]
-
-            # Get CGPA: All grades for this reg_no (all semesters)
-            cgpa_response = supabase.table("results") \
-                .select("grade") \
-                .eq("reg_no", reg_no) \
-                .execute()
-            cgpa_grades = [row['grade'] for row in cgpa_response.data]
-
-            # GPA Calculations
-            sgpa = calculate_gpa_from_grades(sgpa_grades)
-            cgpa = calculate_gpa_from_grades(cgpa_grades)
-
-            toppers.append({
-                "reg_no": reg_no,
-                "name": student['name'],
-                "school": student['school'],
-                "branch": student['branch'],
-                "semester": semester,
-                "academic_year": academic_year,
-                "sgpa": round(sgpa, 2),
-                "cgpa": round(cgpa, 2)
-            })
-
-        # Sort: first by SGPA (desc), then by CGPA (desc)
-        toppers.sort(key=lambda x: (-x['sgpa'], -x['cgpa']))
-
-        # Limit to Top 10
-        toppers = toppers[:10]
-
-        return render_template("topper.html",
-                               schoolBranchMap=school_branch_map,
-                               academic_years=academic_years,
-                               toppers=toppers,
-                               form_data=request.form)
-
-    return render_template("topper.html",
-                           schoolBranchMap=school_branch_map,
-                           academic_years=academic_years,
-                           toppers=None,
-                           form_data={})
-
-def calculate_gpa_from_grades(grades):
-    grade_map = {
-        'O': 10, 'E': 9, 'A': 8, 'B': 7, 'C': 6, 'D': 5, 'F': 0, 'S': 0
-    }
-    points = []
-    for grade in grades:
-        grade = grade.strip().upper()
-        if grade in grade_map:
-            points.append(grade_map[grade])
-    return round(sum(points) / len(points), 2) if points else 0.0
-
 # ==========================
 # Credit Tracker Logic and Routes
 # ==========================
@@ -1404,6 +1320,10 @@ def download_semester_excel():
         download_name=f"{student['reg_no']}_credits_report.xlsx",
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+#=============================
+# Semester Wise Basket Summary
+#=============================
 
 #=============================
 # Basket Summary Logic and Route
