@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response
 import os, io, re
+from io import BytesIO
 import pandas as pd
 from supabase import create_client, Client
 from flask import make_response, send_file
@@ -115,7 +116,7 @@ def result():
     reg_no = request.form['reg_no'].strip()
     semester = request.form['semester'].strip()
 
-    # Get current semester result
+    # Get current semester result including subject_code
     response = supabase.table("results").select("*").eq("reg_no", reg_no).eq("semester", semester).execute()
     semester_records = response.data if response.data else []
 
@@ -124,9 +125,19 @@ def result():
     all_records = response_all.data if response_all.data else []
 
     if not semester_records:
-        return render_template('result.html', name="Not Found", reg_no=reg_no, semester=semester,
-                               sgpa=0, cgpa=0, subjects=[], chart_data=[],
-                               school="-", branch="-", academic_year="-")
+        return render_template(
+            'result.html',
+            name="Not Found",
+            reg_no=reg_no,
+            semester=semester,
+            sgpa=0,
+            cgpa=0,
+            subjects=[],
+            chart_data=[],
+            school="-",
+            branch="-",
+            academic_year="-"
+        )
 
     name = semester_records[0]['name']
     school = semester_records[0]['school']
@@ -137,14 +148,9 @@ def result():
     cgpa = calculate_gpa(all_records)
 
     # ✅ Get distinct semester list and sort by semester number
-    semesters_resp = supabase.table("results") \
-        .select("semester") \
-        .eq("reg_no", reg_no) \
-        .execute()
-
+    semesters_resp = supabase.table("results").select("semester").eq("reg_no", reg_no).execute()
     raw_semesters = list({row["semester"] for row in semesters_resp.data if row.get("semester")})
 
-    # Extract semester number for sorting (e.g., "Sem 2" -> 2)
     def extract_sem_number(sem):
         try:
             return int(''.join(filter(str.isdigit, sem)))
@@ -161,17 +167,114 @@ def result():
         gpa = calculate_gpa(rows)
         chart_data.append({"semester": sem, "cgpa": gpa})
 
-    return render_template('result.html',
-                           name=name,
-                           reg_no=reg_no,
-                           semester=semester,
-                           sgpa=sgpa,
-                           cgpa=cgpa,
-                           subjects=semester_records,
-                           chart_data=chart_data,
-                           school=school,
-                           branch=branch,
-                           academic_year=academic_year)
+    return render_template(
+        'result.html',
+        name=name,
+        reg_no=reg_no,
+        semester=semester,
+        sgpa=sgpa,
+        cgpa=cgpa,
+        subjects=semester_records,   # now includes subject_code
+        chart_data=chart_data,
+        school=school,
+        branch=branch,
+        academic_year=academic_year
+    )
+
+@app.route("/download_report/<reg_no>/<semester>")
+def download_report(reg_no, semester):
+    # ✅ Fetch semester results
+    results_resp = supabase.table("results").select("*").eq("reg_no", reg_no).eq("semester", semester).execute()
+    results = results_resp.data
+
+    if not results:
+        return "No data available", 400
+
+    # ✅ Fetch all semesters for CGPA
+    all_resp = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    all_records = all_resp.data if all_resp.data else []
+
+    # ✅ Extract details
+    student = {
+        "reg_no": results[0]["reg_no"],
+        "name": results[0].get("name", "N/A"),
+        "school": results[0].get("school", "N/A"),
+        "branch": results[0].get("branch", "N/A"),
+        "semester": semester,
+        "academic_year": results[0].get("academic_year", "N/A"),
+    }
+
+    # ✅ Calculate SGPA & CGPA
+    sgpa = calculate_gpa(results)
+    cgpa = calculate_gpa(all_records)
+
+    # ✅ Generate PDF in memory
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    styles = getSampleStyleSheet()
+
+    # Title
+    elements.append(Paragraph("<b>Report Card</b>", styles["Title"]))
+    elements.append(Spacer(1, 12))
+
+    # Student Info Table (extended)
+    student_info = [
+        ["Name", student["name"]],
+        ["Registration No", student["reg_no"]],
+        ["School", student["school"]],
+        ["Branch", student["branch"]],
+        ["Semester", student["semester"]],
+        ["Academic Year", student["academic_year"]],
+        ["SGPA", f"{sgpa:.2f}"],
+        ["CGPA", f"{cgpa:.2f}"],
+    ]
+    student_table = Table(student_info, colWidths=[120, 350])
+    student_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.black),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+    ]))
+    elements.append(student_table)
+    elements.append(Spacer(1, 14))
+
+    # Subject Results Table
+    data = [["Subject Code", "Subject Name", "Grade", "Credits"]]
+    for r in results:
+        data.append([
+            r["subject_code"],
+            Paragraph(r["subject_name"], styles["Normal"]),
+            r["grade"],
+            str(r["credits"])
+        ])
+
+    table = Table(data, colWidths=[80, 250, 60, 60])
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+    elements.append(table)
+
+    # Build PDF
+    doc.build(elements)
+    buffer.seek(0)
+
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=f"Report_{reg_no}_Sem{semester}.pdf",
+        mimetype="application/pdf"
+    )
 
 @app.route('/admin/login', methods=['GET', 'POST'])
 def admin_login():
@@ -973,6 +1076,187 @@ def view_credits():
         backlogs=backlogs,
         backlog_credits=backlog_credits
     )
+
+@app.route('/download_semester_cards')
+def download_semester_cards():
+    reg_no = request.args.get('reg_no', '').strip()
+    if not reg_no:
+        return redirect(url_for('credit_tracker_home'))
+
+    # 🔹 Fetch results
+    response = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    all_results = response.data
+    if not all_results:
+        return "No results found", 404
+
+    # 🔹 Student info
+    student = {
+        "name": all_results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "program": all_results[0].get("program", "-"),
+        "school": all_results[0].get("school", "-"),
+        "branch": all_results[0].get("branch", "-"),
+        "batch": all_results[0].get("batch", "-"),
+        "semester": all_results[-1].get("semester", "-"),
+        "cgpa": "-",
+    }
+
+    PROGRAM_CREDIT_REQUIREMENTS = {
+        "BTech": 160, "Btech": 160,
+        "BTech Honours": 180, "Btech Honours": 180,
+        "BBA": 120, "Bba": 120,
+        "BSc Ag": 172, "Bsc Ag": 172
+    }
+    program_key = student["program"].strip().title()
+    required_credits = PROGRAM_CREDIT_REQUIREMENTS.get(program_key, 160)
+
+    semester_map = {}
+    cleared_credits = backlog_credits = 0
+    backlog_subjects = []  # ✅ Collect all backlogs
+
+    for record in all_results:
+        sem = record.get("semester", "Unknown")
+        grade = record.get("grade", "").strip().upper()
+        credit_str = record.get("credits", "0").strip()
+
+        try:
+            credits = sum(float(x) for x in credit_str.split('+'))
+        except:
+            credits = 0.0
+
+        if sem not in semester_map:
+            semester_map[sem] = {
+                "semester": sem,
+                "subjects": [],
+                "total_credits": 0,
+                "cleared_credits": 0,
+                "backlog_credits": 0
+            }
+
+        sub_info = {
+            "subject_code": record.get("subject_code", "-"),
+            "subject_name": record.get("subject_name", "-"),
+            "type": record.get("type", "-"),
+            "grade": grade,
+            "credits": credit_str,
+            "semester": sem
+        }
+
+        semester_map[sem]["subjects"].append(sub_info)
+        semester_map[sem]["total_credits"] += credits
+
+        if grade in ["F", "S"]:  # ✅ backlog condition
+            semester_map[sem]["backlog_credits"] += credits
+            backlog_credits += credits
+            backlog_subjects.append(sub_info)
+        else:
+            semester_map[sem]["cleared_credits"] += credits
+            cleared_credits += credits
+
+    completion_percentage = round((cleared_credits / required_credits) * 100, 2) if required_credits else 0
+
+    # 🔹 Generate PDF
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    elements = []
+    styles = getSampleStyleSheet()
+    normal, bold = styles["Normal"], styles["Heading4"]
+
+    elements.append(Paragraph(f"<b>Student Report Card</b>", styles["Title"]))
+    elements.append(Spacer(1, 12))
+
+    for key, label in [
+        ("name", "Name"), ("reg_no", "Reg No"), ("school", "School"),
+        ("program", "Program"), ("branch", "Branch"), ("batch", "Batch")
+    ]:
+        elements.append(Paragraph(f"<b>{label}:</b> {student[key]}", normal))
+    elements.append(Spacer(1, 12))
+
+    # 🔹 Summary Table
+    summary_data = [["Total Required", "Completed", "Remaining", "Backlogs", "Completion %"],
+        [required_credits, cleared_credits, required_credits - cleared_credits,
+         backlog_credits, f"{completion_percentage}%"]]
+    summary_table = Table(summary_data, hAlign="LEFT")
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#f1f1f1")),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 20))
+
+    # 🔹 Semester-wise tables
+    for sem in semester_map.values():
+        elements.append(Paragraph(f"Semester {sem['semester']}", bold))
+        elements.append(Spacer(1, 8))
+
+        data = [["Code", "Name", "Type", "Grade", "Credits"]]
+        for sub in sem["subjects"]:
+            data.append([
+                sub["subject_code"],
+                Paragraph(sub["subject_name"], normal),
+                sub["type"], sub["grade"], sub["credits"]
+            ])
+
+        table = Table(data, colWidths=[70, 200, 70, 60, 60], hAlign="LEFT")
+        style = TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#dbeeff")),
+            ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ])
+
+        # ✅ Highlight backlog rows in red
+        for i, sub in enumerate(sem["subjects"], start=1):
+            if sub["grade"] in ["F", "S"]:
+                style.add("BACKGROUND", (0,i), (-1,i), colors.HexColor("#ffe5e5"))
+
+        table.setStyle(style)
+        elements.append(table)
+
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph(
+            f"<b>Total:</b> {sem['total_credits']} | "
+            f"<b>Cleared:</b> {sem['cleared_credits']} | "
+            f"<b>Backlogs:</b> {sem['backlog_credits']}", normal
+        ))
+        elements.append(Spacer(1, 16))
+
+    # 🔹 Overall Backlog Table (end of report)
+    if backlog_subjects:
+        elements.append(Paragraph("Overall Backlogs", bold))
+        elements.append(Spacer(1, 8))
+
+        backlog_data = [["Semester", "Code", "Name", "Grade", "Credits"]]
+        for sub in backlog_subjects:
+            backlog_data.append([
+                sub["semester"], sub["subject_code"],
+                Paragraph(sub["subject_name"], normal),
+                sub["grade"], sub["credits"]
+            ])
+
+        backlog_table = Table(backlog_data, colWidths=[60, 70, 200, 60, 60], hAlign="LEFT")
+        backlog_style = TableStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#ffcccc")),
+            ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+            ("ALIGN", (0,0), (-1,-1), "CENTER"),
+            ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ])
+        backlog_table.setStyle(backlog_style)
+        elements.append(backlog_table)
+        elements.append(Spacer(1, 16))
+
+        # ✅ Add total backlog count
+        elements.append(Paragraph(f"<b>Total Backlog Subjects:</b> {len(backlog_subjects)}", normal))
+
+    doc.build(elements)
+    pdf = buffer.getvalue()
+    buffer.close()
+
+    return Response(pdf, mimetype='application/pdf',
+        headers={"Content-Disposition": "attachment;filename=semester_report.pdf"})
+
 #=============================
 # Basket Summary Logic and Route
 #=============================
