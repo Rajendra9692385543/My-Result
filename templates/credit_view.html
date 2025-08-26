@@ -45,13 +45,13 @@
     📋 Basket Wise Credit Data
   </a>
 
-  <!-- Semester-wise Subjects with Dropdown -->
-  <div class="dropdown">
-    <button class="btn btn-warning dropdown-toggle" type="button" 
-            id="semesterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-      📚 Semester-wise Basket Data
-    </button>
-  </div>
+ <!-- Semester-wise Subjects with Dropdown -->
+<!-- Semester-wise Subjects with Dropdown -->
+{% if student %}
+<a href="{{ url_for('credit_report', reg_no=student.reg_no) }}" class="btn btn-primary">
+    Semester-wise Credit Report
+</a>
+{% endif %}
 
   <!-- Download Dropdown -->
   <div class="dropdown">

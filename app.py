@@ -1322,8 +1322,252 @@ def download_semester_excel():
     )
 
 #=============================
-# Semester Wise Basket Summary
+# Semester Wise Basket Analysis
 #=============================
+
+@app.route('/credit-report/<reg_no>')
+def credit_report(reg_no):
+    from flask import flash, redirect, url_for
+
+    # --- Fetch student results ---
+    response = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    results = response.data
+    if not results:
+        flash("No results found for this student", "danger")
+        return redirect(url_for("index"))
+
+    # --- Extract basic student info ---
+    student_info = {
+        "name": results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "session": results[0].get("batch", "-"),
+        "branch": results[0].get("branch", "-"),
+        "section": results[0].get("section", "-"),
+        "program": results[0].get("program", "BTech"),
+        "total_backlog_credits": 0,
+        "school": results[0].get("school", ""),   # ✅ new field
+        "campus": results[0].get("campus", "")    # ✅ new field
+    }
+
+    # --- Default mapping if DB does not provide school/campus ---
+    if not student_info["school"]:
+        # Simple branch → school mapping
+        branch = student_info["branch"].lower()
+        if any(b in branch for b in ["cse", "civil", "eee", "mech", "ece", "it"]):
+            student_info["school"] = "SCHOOL OF ENGINEERING & TECHNOLOGY"
+        elif "bba" in branch or "mba" in branch:
+            student_info["school"] = "SCHOOL OF MANAGEMENT"
+        elif "ag" in branch or "agriculture" in branch:
+            student_info["school"] = "SCHOOL OF AGRICULTURE & BIOSCIENCES"
+        else:
+            student_info["school"] = "SCHOOL OF STUDIES"
+
+    if not student_info["campus"]:
+        # You can expand this as needed
+        student_info["campus"] = "PARALAKHEMUNDI CAMPUS"
+
+    program = student_info["program"].strip().title()
+    branch = student_info["branch"].strip().lower().replace(" ", "")
+
+    # --- CBCS Basket Credit Requirements ---
+    BASKET_CREDIT_REQUIREMENTS = {
+        "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 48, "Total": 160},
+        "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 68, "Total": 180},
+        "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12, "Basket IV": 12, "Basket V": 4, "Total": 120},
+        "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20, "Basket IV": 96, "Basket V": 20, "Total": 172}
+    }
+    basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
+
+    # --- Fetch CBCS basket mapping ---
+    try:
+        cbcs_resp = supabase.table("cbcs_basket").select("*").execute()
+        cbcs_map = cbcs_resp.data
+    except Exception as e:
+        flash(f"Error fetching CBCS mappings: {e}", "danger")
+        cbcs_map = []
+
+    # --- Build subject → basket mapping ---
+    subject_basket_map = {}
+    basket_indices = {"Basket I": 0, "Basket II": 1, "Basket III": 2, "Basket IV": 3, "Basket V": 4}
+    for row in cbcs_map:
+        sub_code = row.get("subject_code", "").strip()
+        cbcs_prog = row.get("program", "").strip().title()
+        cbcs_branch = row.get("branch", "").strip().lower().replace(" ", "")
+
+        match = (
+            (cbcs_prog == program and cbcs_branch == branch) or
+            (cbcs_prog == program and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == branch)
+        )
+
+        if sub_code and match:
+            try:
+                credits = float(row.get("credits", 0))
+            except:
+                credits = 0
+            subject_basket_map[sub_code] = {
+                "basket": row.get("basket", "Unknown"),
+                "credits": credits,
+                "subject_name": row.get("subject_name", "")
+            }
+
+    # --- Group results into semesters and baskets ---
+    semesters, totals, backlog, baskets = {}, {}, {}, {}
+    unmatched = 0
+
+    for r in results:
+        year = r.get("year", "-")
+        semester = r.get("semester", "-").strip().title().replace("Sem", "Semester-").replace(" ", "-")
+        sub_code = r.get("subject_code", "").strip()
+        grade = r.get("grade", "").strip().upper()
+
+        semesters.setdefault(year, {}).setdefault(semester, [])
+        totals.setdefault(year, {}).setdefault(semester, None)
+        backlog.setdefault(year, {}).setdefault(semester, [])
+
+        if sub_code in subject_basket_map:
+            info = subject_basket_map[sub_code]
+            basket_name = info["basket"]
+            credit = info["credits"]
+            sub_name = r.get("subject_name") or info["subject_name"]
+
+            if basket_name not in baskets:
+                baskets[basket_name] = {
+                    "completed": [],
+                    "backlogs": [],
+                    "total_credits": basket_requirements.get(basket_name, 0),
+                    "cleared_credits": 0,
+                    "backlog_credits": 0
+                }
+
+            sub_data = {
+                "subject_code": sub_code,
+                "subject_name": sub_name,
+                "credits": credit,
+                "grade": grade,
+                "semester": semester
+            }
+
+            if grade in ["F", "BACKLOG", "S"]:
+                baskets[basket_name]["backlogs"].append(sub_data)
+                baskets[basket_name]["backlog_credits"] += credit
+                student_info["total_backlog_credits"] += credit
+            else:
+                baskets[basket_name]["completed"].append(sub_data)
+                baskets[basket_name]["cleared_credits"] += credit
+
+            basket_cols = [0, 0, 0, 0, 0]
+            idx = basket_indices.get(basket_name, None)
+            if idx is not None:
+                basket_cols[idx] = credit
+
+            semesters[year][semester].append({
+                "sl_no": len(semesters[year][semester]) + 1,
+                "code": sub_code,
+                "subject": sub_name,
+                "baskets": basket_cols,
+                "grade": grade
+            })
+        else:
+            unmatched += 1
+
+    if unmatched > 0:
+        flash(f"{unmatched} subject(s) did not match any CBCS basket mapping.", "info")
+
+    # --- Compute totals row per semester ---
+    for year, sems in semesters.items():
+        for sem_name, subjects in sems.items():
+            basket_totals = [0, 0, 0, 0, 0]
+            for sub in subjects:
+                for i in range(5):
+                    basket_totals[i] += sub["baskets"][i]
+            grand_total = sum(basket_totals)
+            totals[year][sem_name] = {
+                "sl_no": "",
+                "code": "",
+                "subject": "Total",
+                "baskets": basket_totals,
+                "grand_total": grand_total,
+                "grade": ""
+            }
+
+    # --- Compute year-level totals ---
+    year_totals = {}
+    for year, sems in totals.items():
+        sem_names = sorted(sems.keys())
+        year_totals[year] = []
+        temp_totals = [0, 0, 0, 0, 0]
+        temp_grand = 0
+        for idx, sem_name in enumerate(sem_names, start=1):
+            for i in range(5):
+                temp_totals[i] += totals[year][sem_name]["baskets"][i]
+            temp_grand += totals[year][sem_name]["grand_total"]
+            if idx % 2 == 0:
+                year_totals[year].append({
+                    "sl_no": "",
+                    "code": "",
+                    "subject": f"{year} Total Credits",
+                    "baskets": temp_totals.copy(),
+                    "grand_total": temp_grand,
+                    "grade": ""
+                })
+                temp_totals = [0, 0, 0, 0, 0]
+                temp_grand = 0
+
+    # --- Prepare semester-wise summary ---
+    semester_summary = []
+    basket_sum = [0, 0, 0, 0, 0]
+    grand_sum = 0
+    sem_counter = 1
+
+    for year, sems in sorted(semesters.items()):
+        for sem_name, subjects in sorted(sems.items()):
+            basket_totals = [0, 0, 0, 0, 0]
+            for sub in subjects:
+                for i in range(5):
+                    basket_totals[i] += sub["baskets"][i]
+            sem_grand = sum(basket_totals)
+            semester_summary.append({
+                "sem_number": sem_counter,
+                "baskets": basket_totals,
+                "grand_total": sem_grand
+            })
+            for i in range(5):
+                basket_sum[i] += basket_totals[i]
+            grand_sum += sem_grand
+            sem_counter += 1
+
+    # --- Sort baskets ---
+    def roman_to_int(roman):
+        return {"I":1,"II":2,"III":3,"IV":4,"V":5}.get(roman.upper(),None)
+
+    def basket_order_key(basket_name):
+        parts = basket_name.strip().split()
+        if len(parts) > 1:
+            roman = parts[-1]
+            if roman.isdigit(): return int(roman)
+            val = roman_to_int(roman)
+            if val: return val
+        return 999
+
+    sorted_baskets = dict(sorted(baskets.items(), key=lambda x: basket_order_key(x[0])))
+
+    # --- Prepare data for template ---
+    data = {
+        "student_info": student_info,
+        "semesters": semesters,
+        "totals": totals,
+        "year_totals": year_totals,
+        "backlog": backlog,
+        "baskets": sorted_baskets,
+        "basket_requirements": basket_requirements,
+        "semester_summary": semester_summary,
+        "basket_sum": basket_sum,
+        "grand_sum": grand_sum
+    }
+
+    return render_template("credit_report.html", data=data)
 
 #=============================
 # Basket Summary Logic and Route
