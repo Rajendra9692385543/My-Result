@@ -121,12 +121,6 @@
     <div class="info-item backlog"><strong>Total Backlog Credits:</strong> {{ data.student_info.total_backlog_credits }}</div>
   </div>
 </div>
-<div class="text-end mb-3">
-  <a href="{{ url_for('download_credit_excel', reg_no=data.student_info.reg_no) }}" 
-     class="btn btn-success">
-     <i class="bi bi-download me-2"></i> Download as Excel
-  </a>
-</div>
 
 <!-- --- Semester-wise detailed tables --- -->
 {% for year, sems in data.semesters.items() %}
