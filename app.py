@@ -8,7 +8,8 @@ from reportlab.lib.pagesizes import landscape, A4, letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.pdfgen import canvas
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
 from werkzeug.security import check_password_hash, generate_password_hash
 from datetime import datetime
 from collections import defaultdict
@@ -1568,6 +1569,451 @@ def credit_report(reg_no):
     }
 
     return render_template("credit_report.html", data=data)
+
+def prepare_credit_report_data(reg_no):
+  
+    # --- Fetch student results ---
+    response = supabase.table("results").select("*").eq("reg_no", reg_no).execute()
+    results = response.data
+    if not results:
+        return None  # No data found
+
+    # --- Student Info ---
+    student_info = {
+        "name": results[0].get("name", "-"),
+        "reg_no": reg_no,
+        "session": results[0].get("batch", "-"),
+        "branch": results[0].get("branch", "-"),
+        "section": results[0].get("section", "-"),
+        "school": results[0].get("school", "SCHOOL OF ENGINEERING & TECHNOLOGY"),
+        "campus": results[0].get("campus", "PARALAKHEMUNDI CAMPUS"),
+        "program": results[0].get("program", "BTech"),
+        "total_backlog_credits": 0
+    }
+
+    program = student_info["program"].strip().title()
+    branch = student_info["branch"].strip().lower().replace(" ", "")
+
+    # --- CBCS Basket Mapping ---
+    BASKET_CREDIT_REQUIREMENTS = {
+        "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 48, "Total": 160},
+        "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 68, "Total": 180},
+        "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12, "Basket IV": 12, "Basket V": 4, "Total": 120},
+        "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20, "Basket IV": 96, "Basket V": 20, "Total": 172}
+    }
+    basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
+
+    cbcs_resp = supabase.table("cbcs_basket").select("*").execute()
+    cbcs_map = cbcs_resp.data or []
+
+    # --- Subject → Basket mapping ---
+    subject_basket_map = {}
+    basket_indices = {"Basket I": 0, "Basket II": 1, "Basket III": 2, "Basket IV": 3, "Basket V": 4}
+    for row in cbcs_map:
+        sub_code = row.get("subject_code", "").strip()
+        cbcs_prog = row.get("program", "").strip().title()
+        cbcs_branch = row.get("branch", "").strip().lower().replace(" ", "")
+        match = (
+            (cbcs_prog == program and cbcs_branch == branch) or
+            (cbcs_prog == program and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == "all") or
+            (cbcs_prog == "All" and cbcs_branch == branch)
+        )
+        if sub_code and match:
+            credits = float(row.get("credits", 0))
+            subject_basket_map[sub_code] = {
+                "basket": row.get("basket", "Unknown"),
+                "credits": credits,
+                "subject_name": row.get("subject_name", "")
+            }
+
+    # --- Organize semesters ---
+    semesters = {}
+    totals = {}
+    unmatched = 0
+
+    for r in results:
+        sem_name = r.get("semester", "-").strip().title().replace("Sem", "").replace(" ", "-")
+        sub_code = r.get("subject_code", "").strip()
+        grade = r.get("grade", "").strip().upper()
+        semesters.setdefault(sem_name, [])
+        totals.setdefault(sem_name, None)
+
+        if sub_code in subject_basket_map:
+            info = subject_basket_map[sub_code]
+            basket_name = info["basket"]
+            credit = info["credits"]
+            sub_name = r.get("subject_name") or info["subject_name"]
+
+            basket_cols = [0, 0, 0, 0, 0]
+            idx = basket_indices.get(basket_name, None)
+            if idx is not None:
+                basket_cols[idx] = credit
+
+            semesters[sem_name].append({
+                "sl_no": len(semesters[sem_name]) + 1,
+                "code": sub_code,
+                "subject": sub_name,
+                "baskets": basket_cols,
+                "grade": grade
+            })
+
+            if grade in ["F", "S", "BACKLOG"]:
+                student_info["total_backlog_credits"] += credit
+        else:
+            unmatched += 1
+
+    # --- Totals per semester ---
+    for sem_name, subjects in semesters.items():
+        basket_totals = [0, 0, 0, 0, 0]
+        for sub in subjects:
+            for i in range(5):
+                basket_totals[i] += sub["baskets"][i]
+        grand_total = sum(basket_totals)
+        totals[sem_name] = {
+            "baskets": basket_totals,
+            "grand_total": grand_total
+        }
+
+    # --- Prepare semester-wise summary ---
+    semester_summary = []
+    basket_sum = [0, 0, 0, 0, 0]
+    grand_sum = 0
+    sem_counter = 1
+
+    for sem_name, subjects in sorted(semesters.items()):
+        basket_totals = totals[sem_name]["baskets"]
+        sem_grand = totals[sem_name]["grand_total"]
+        semester_summary.append({
+            "sem_number": sem_counter,
+            "baskets": basket_totals,
+            "grand_total": sem_grand
+        })
+        for i in range(5):
+            basket_sum[i] += basket_totals[i]
+        grand_sum += sem_grand
+        sem_counter += 1
+
+    data = {
+        "student_info": student_info,
+        "semesters": semesters,
+        "totals": totals,
+        "semester_summary": semester_summary,
+        "basket_sum": basket_sum,
+        "grand_sum": grand_sum
+    }
+
+    return data
+
+@app.route("/credit-report/<reg_no>/download")
+def download_credit_report(reg_no):
+    # Prepare student data
+    data = prepare_credit_report_data(reg_no)
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=20, leftMargin=20, topMargin=20, bottomMargin=20)
+    elements = []
+    styles = getSampleStyleSheet()
+    styleH = styles['Heading2']
+    styleN = styles['Normal']
+
+    # Custom centered paragraph style for table cells with wrapping
+    style_wrap = ParagraphStyle(
+        name="wrap",
+        parent=styles["Normal"],
+        alignment=1,  # center
+        fontSize=9,
+        wordWrap='CJK'  # wrap long text
+    )
+
+    # --- Header Styles ---
+    style_header = ParagraphStyle(
+        name="header",
+        fontName="Helvetica-Bold",
+        fontSize=16,       # larger font
+        alignment=TA_CENTER,
+        spaceAfter=6
+    )
+
+    style_subheader = ParagraphStyle(
+        name="subheader",
+        fontName="Helvetica-Bold",
+        fontSize=14,       # slightly smaller
+        alignment=TA_CENTER,
+        spaceAfter=4
+    )
+
+    style_subsubheader = ParagraphStyle(
+        name="subsubheader",
+        fontName="Helvetica",
+        fontSize=12,
+        alignment=TA_CENTER,
+        spaceAfter=12
+    )
+
+    # --- Header ---
+    elements.append(Paragraph("CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT", style_header))
+    elements.append(Paragraph(data['student_info']['school'], style_subheader))
+    elements.append(Paragraph("PARALAKHEMUNDI CAMPUS", style_subsubheader))
+    elements.append(Spacer(1, 12))
+
+
+    # --- Student Info ---
+    info_data = [
+        ["Name", data['student_info']['name']],
+        ["Reg. No", data['student_info']['reg_no']],
+        ["Session", data['student_info']['session']],
+        ["Branch", data['student_info']['branch']],
+        ["Section", data['student_info']['section']],
+        ["Total Backlog Credits", str(data['student_info']['total_backlog_credits'])]
+    ]
+    t = Table(info_data, colWidths=[120, 350])
+    t.setStyle(TableStyle([
+        ('BOX', (0,0), (-1,-1), 1, colors.black),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('BACKGROUND', (0,0), (-1,0), colors.lightblue)
+    ]))
+    elements.append(t)
+    elements.append(Spacer(1, 12))
+
+    # --- Semester Tables ---
+    for sem_name, subjects in sorted(data['semesters'].items(), key=lambda x: x[0]):
+        elements.append(Paragraph(f"Semester {sem_name}", styleH))
+        table_data = [["Sl. No", "Subject Code", "Subject", "B1", "B2", "B3", "B4", "B5", "Grand Total", "Grade"]]
+
+        for sub in subjects:
+            row = [
+                sub['sl_no'],
+                sub['code'],
+                Paragraph(sub['subject'], style_wrap)
+            ]
+            row += [sub['baskets'][i] if sub['baskets'][i] else "-" for i in range(5)]
+            row.append("")  # leave grand total blank for each row
+            row.append(sub['grade'])
+            table_data.append(row)
+
+        # Total row (grand total only in the last row)
+        totals_row = ["Total", "", ""]
+        totals_row += [data['totals'][sem_name]['baskets'][i] for i in range(5)]
+        totals_row.append(data['totals'][sem_name]['grand_total'])
+        totals_row.append("")
+        table_data.append(totals_row)
+
+        col_widths = [30, 60, 180, 35, 35, 35, 35, 35, 50, 35]
+        t = Table(table_data, colWidths=col_widths, repeatRows=1, splitByRow=True)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.darkblue),
+            ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.lightblue),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ]))
+        elements.append(t)
+        elements.append(Spacer(1, 12))
+
+    # --- Summary Table (once at the end) ---
+    elements.append(Paragraph("Semester-wise Total Credits Analysis", styleH))
+    summary_data = [["Semester", "Basket 1", "Basket 2", "Basket 3", "Basket 4", "Basket 5", "Grand Total"]]
+    for sem in data['semester_summary']:
+        row = [f"Semester {sem['sem_number']}"]
+        row += [sem['baskets'][i] if sem['baskets'][i] else "-" for i in range(5)]
+        row.append(sem['grand_total'])
+        summary_data.append(row)
+
+    total_row = ["Total Credits"]
+    total_row += [data['basket_sum'][i] for i in range(5)]
+    total_row.append(data['grand_sum'])
+    summary_data.append(total_row)
+
+    col_widths_summary = [80, 60, 60, 60, 60, 60, 80]
+    t = Table(summary_data, colWidths=col_widths_summary, repeatRows=1)
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.darkblue),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.white),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+        ('BACKGROUND', (0,-1), (-1,-1), colors.lightblue),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    elements.append(t)
+
+    # --- Build PDF ---
+    doc.build(elements)
+    buffer.seek(0)
+
+    return send_file(buffer, as_attachment=True, download_name=f"Credit_Report_{reg_no}.pdf", mimetype='application/pdf')
+
+import io
+from flask import send_file
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+@app.route("/credit-report/<reg_no>/download_excel")
+def download_credit_report_excel(reg_no):
+    data = prepare_credit_report_data(reg_no)
+    if not data:
+        return "No data found", 404
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Credit Report"
+
+    # --- Styles ---
+    header_font = Font(bold=True, size=16)
+    subheader_font = Font(bold=True, size=14)
+    normal_font = Font(size=11)
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    left_align_wrap = Alignment(horizontal="left", vertical="center", wrap_text=True)
+    light_blue_fill = PatternFill("solid", fgColor="ADD8E6")
+    dark_blue_fill = PatternFill("solid", fgColor="00008B")
+    white_font = Font(color="FFFFFF", bold=True)
+    thin_border = Border(left=Side(style='thin'),
+                         right=Side(style='thin'),
+                         top=Side(style='thin'),
+                         bottom=Side(style='thin'))
+
+    row = 1
+
+    # --- Header ---
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
+    ws.cell(row=row, column=1, value="CENTURION UNIVERSITY OF TECHNOLOGY & MANAGEMENT").font = header_font
+    ws.cell(row=row, column=1).alignment = center_align
+    row += 1
+
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
+    ws.cell(row=row, column=1, value=data['student_info']['school']).font = subheader_font
+    ws.cell(row=row, column=1).alignment = center_align
+    row += 1
+
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
+    ws.cell(row=row, column=1, value="PARALAKHEMUNDI CAMPUS").alignment = center_align
+    row += 2
+
+    # --- Student Info Table with full borders ---
+    student_info = [
+        ["Name", data['student_info']['name']],
+        ["Reg. No", data['student_info']['reg_no']],
+        ["Session", data['student_info']['session']],
+        ["Branch", data['student_info']['branch']],
+        ["Section", data['student_info']['section']],
+        ["Total Backlog Credits", str(data['student_info']['total_backlog_credits'])]
+    ]
+
+    for info in student_info:
+        ws.merge_cells(start_row=row, start_column=2, end_row=row, end_column=3)
+        ws.cell(row=row, column=1, value=info[0])
+        ws.cell(row=row, column=2, value=info[1])
+        # Apply borders to all involved cells
+        for col in [1,2,3]:
+            ws.cell(row=row, column=col).border = thin_border
+        ws.cell(row=row, column=1).fill = light_blue_fill
+        ws.cell(row=row, column=1).alignment = center_align
+        ws.cell(row=row, column=2).alignment = left_align_wrap
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+    row += 1
+
+    # --- Semester Tables ---
+    for sem_name, subjects in sorted(data['semesters'].items(), key=lambda x: x[0]):
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=10)
+        ws.cell(row=row, column=1, value=f"Semester {sem_name}").font = header_font
+        ws.cell(row=row, column=1).alignment = center_align
+        ws.row_dimensions[row].height = 25
+        row += 1
+
+        # Table header
+        headers = ["Sl. No", "Subject Code", "Subject", "Basket 1", "Basket 2", "Basket 3", "Basket 4", "Basket 5", "Grand Total", "Grade"]
+        for col, h in enumerate(headers, start=1):
+            ws.cell(row=row, column=col, value=h).font = white_font
+            ws.cell(row=row, column=col).fill = dark_blue_fill
+            ws.cell(row=row, column=col).alignment = center_align
+            ws.cell(row=row, column=col).border = thin_border
+        ws.row_dimensions[row].height = 20
+        row += 1
+
+        # Table rows
+        for sub in subjects:
+            values = [
+                sub['sl_no'],
+                sub['code'],
+                sub['subject'],
+            ] + [sub['baskets'][i] if sub['baskets'][i] else "-" for i in range(5)] + ["", sub['grade']]
+
+            for col, val in enumerate(values, start=1):
+                ws.cell(row=row, column=col, value=val)
+                if col == 3:  # Subject column
+                    ws.cell(row=row, column=col).alignment = left_align_wrap
+                else:
+                    ws.cell(row=row, column=col).alignment = center_align
+                ws.cell(row=row, column=col).border = thin_border
+            ws.row_dimensions[row].height = 25
+            row += 1
+
+        # Total row
+        totals_row = ["Total", "", ""] + data['totals'][sem_name]['baskets'] + [data['totals'][sem_name]['grand_total'], ""]
+        for col, val in enumerate(totals_row, start=1):
+            ws.cell(row=row, column=col, value=val).fill = light_blue_fill
+            ws.cell(row=row, column=col).alignment = center_align
+            ws.cell(row=row, column=col).border = thin_border
+        ws.row_dimensions[row].height = 22
+        row += 2
+
+    # --- Semester Summary Table ---
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=7)
+    ws.cell(row=row, column=1, value="Semester-wise Total Credits Analysis").font = header_font
+    ws.cell(row=row, column=1).alignment = center_align
+    ws.row_dimensions[row].height = 25
+    row += 1
+
+    summary_headers = ["Semester", "Basket 1", "Basket 2", "Basket 3", "Basket 4", "Basket 5", "Grand Total"]
+    for col, h in enumerate(summary_headers, start=1):
+        ws.cell(row=row, column=col, value=h).font = white_font
+        ws.cell(row=row, column=col).fill = dark_blue_fill
+        ws.cell(row=row, column=col).alignment = center_align
+        ws.cell(row=row, column=col).border = thin_border
+    ws.row_dimensions[row].height = 20
+    row += 1
+
+    for sem in data['semester_summary']:
+        ws.cell(row=row, column=1, value=f"Semester {sem['sem_number']}").alignment = center_align
+        ws.cell(row=row, column=1).border = thin_border
+        values = [sem['baskets'][i] if sem['baskets'][i] else "-" for i in range(5)] + [sem['grand_total']]
+        for col_offset, val in enumerate(values, start=2):
+            ws.cell(row=row, column=col_offset, value=val)
+            ws.cell(row=row, column=col_offset).alignment = center_align
+            ws.cell(row=row, column=col_offset).border = thin_border
+        ws.row_dimensions[row].height = 22
+        row += 1
+
+    # Total Credits
+    ws.cell(row=row, column=1, value="Total Credits").alignment = center_align
+    ws.cell(row=row, column=1).border = thin_border
+    total_values = data['basket_sum'] + [data['grand_sum']]
+    for col_offset, val in enumerate(total_values, start=2):
+        ws.cell(row=row, column=col_offset, value=val)
+        ws.cell(row=row, column=col_offset).alignment = center_align
+        ws.cell(row=row, column=col_offset).border = thin_border
+        ws.cell(row=row, column=col_offset).fill = light_blue_fill
+    ws.row_dimensions[row].height = 22
+
+    # --- Set column widths ---
+    col_widths = [12, 15, 50, 12, 12, 12, 12, 12, 14, 10]  # Slightly wider Semester column
+    for i, width in enumerate(col_widths, start=1):
+        ws.column_dimensions[chr(64 + i)].width = width
+
+    # --- Save Excel to Bytes ---
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return send_file(buffer,
+                     as_attachment=True,
+                     download_name=f"Credit_Report_{reg_no}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 #=============================
 # Basket Summary Logic and Route
