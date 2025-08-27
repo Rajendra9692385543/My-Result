@@ -2516,7 +2516,18 @@ def basket_summary_report():
 
     except Exception as e:
         flash(f"❌ Error fetching dropdowns: {e}", "danger")
-        return render_template("basket_summary_report.html", data=[], baskets=[], schools=[], programs=[], branches=[])
+        return render_template(
+            "basket_summary_report.html",
+            data=[],
+            baskets=[],
+            basket_max={},
+            total_max=0,
+            schools=[],
+            programs=[],
+            branches=[],
+            schoolBranchMap=school_branch_map,
+            schoolProgramMap=school_program_map
+        )
 
     if request.method == 'POST':
         school = request.form.get('school')
@@ -2539,7 +2550,18 @@ def basket_summary_report():
             student_results = student_resp.data
             if not student_results:
                 flash("⚠️ No student records found.", "warning")
-                return render_template("basket_summary_report.html", data=[], baskets=[], schools=unique_schools, programs=unique_programs, branches=unique_branches)
+                return render_template(
+                    "basket_summary_report.html",
+                    data=[],
+                    baskets=[],
+                    basket_max={},
+                    total_max=0,
+                    schools=unique_schools,
+                    programs=unique_programs,
+                    branches=unique_branches,
+                    schoolBranchMap=school_branch_map,
+                    schoolProgramMap=school_program_map
+                )
 
             # ✅ CBCS Data
             cbcs_map = supabase.table("cbcs_basket").select("*").execute().data
@@ -2563,24 +2585,17 @@ def basket_summary_report():
 
             # ✅ Basket Requirement Map
             BASKET_CREDIT_REQUIREMENTS = {
-                "Btech": {
-                    "Basket I": 17, "Basket II": 12, "Basket III": 25,
-                    "Basket IV": 58, "Basket V": 48, "Total": 160
-                },
-                "Btech Honours": {
-                    "Basket I": 17, "Basket II": 12, "Basket III": 25,
-                    "Basket IV": 58, "Basket V": 68, "Total": 180
-                },
-                "Bba": {
-                    "Basket I": 60, "Basket II": 32, "Basket III": 12,
-                    "Basket IV": 12, "Basket V": 4, "Total": 120
-                },
-                "Bsc Ag": {
-                    "Basket I": 18, "Basket II": 18, "Basket III": 20,
-                    "Basket IV": 96, "Basket V": 20, "Total": 172
-                }
+                "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
+                          "Basket IV": 58, "Basket V": 48, "Total": 160},
+                "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
+                                  "Basket IV": 58, "Basket V": 68, "Total": 180},
+                "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12,
+                        "Basket IV": 12, "Basket V": 4, "Total": 120},
+                "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20,
+                           "Basket IV": 96, "Basket V": 20, "Total": 172}
             }
-            basket_labels = list(BASKET_CREDIT_REQUIREMENTS.get(program.title(), {}).keys())[:-1]  # Exclude 'Total'
+            program_reqs = BASKET_CREDIT_REQUIREMENTS.get(program.title(), {})
+            basket_labels = list(program_reqs.keys())[:-1]  # Exclude 'Total'
 
             # ✅ Aggregation per student
             student_data = defaultdict(lambda: {
@@ -2589,7 +2604,8 @@ def basket_summary_report():
                 "branch": "",
                 "baskets": defaultdict(float),
                 "backlog_credits": 0.0,
-                "total": 0.0
+                "total": 0.0,
+                "pending_credits": 0.0  # ✅ New field
             })
 
             # ✅ Track only the latest attempt per subject per student
@@ -2615,7 +2631,8 @@ def basket_summary_report():
                 for option in subject_basket_map[subject_code]:
                     prog = option["program"]
                     brnch = option["branch"]
-                    if (prog == program.lower() or prog == "all") and (brnch == branch.lower().replace(" ", "") or brnch == "all"):
+                    if (prog == program.lower() or prog == "all") and \
+                       (brnch == branch.lower().replace(" ", "") or brnch == "all"):
                         matched = option
                         break
 
@@ -2635,7 +2652,7 @@ def basket_summary_report():
                         "semester": semester
                     }
 
-            # ✅ Now aggregate from deduped subjects
+            # ✅ Aggregate from deduped subjects
             for reg_no, subjects in student_subjects.items():
                 student = student_data[reg_no]
                 for subject_code, info in subjects.items():
@@ -2645,67 +2662,172 @@ def basket_summary_report():
                         student["baskets"][info["basket"]] += info["credits"]
                         student["total"] += info["credits"]
 
-            final_data = sorted(student_data.values(), key=lambda x: x["reg_no"])
+                # ✅ Pending credits after total is computed
+                student["pending_credits"] = max(
+                    program_reqs.get("Total", 0.0) - student["total"], 0.0
+                )
+
+            # ✅ Sort students by reg_no
+            sorted_students = []
+            for idx, student in enumerate(sorted(student_data.values(), key=lambda x: x["reg_no"]), start=1):
+                # Reorder baskets
+                student["baskets"] = {label: student["baskets"].get(label, 0.0) for label in basket_labels}
+                sorted_students.append(student)
 
             # ✅ Save in session for downloads
-            session["basket_summary_data"] = final_data
+            session["basket_summary_data"] = sorted_students
             session["basket_labels"] = basket_labels
 
-            return render_template("basket_summary_report.html",
-                                   data=final_data,
-                                   baskets=basket_labels,
-                                   schools=unique_schools,
-                                   programs=unique_programs,
-                                   branches=unique_branches)
+            return render_template(
+                "basket_summary_report.html",
+                data=sorted_students,
+                baskets=basket_labels,
+                basket_max={label: program_reqs.get(label, 0.0) for label in basket_labels},
+                total_max=program_reqs.get("Total", 0.0),
+                schools=unique_schools,
+                programs=unique_programs,
+                branches=unique_branches,
+                schoolBranchMap=school_branch_map,
+                schoolProgramMap=school_program_map
+            )
 
         except Exception as e:
             flash(f"❌ Error processing report: {str(e)}", "danger")
-            return render_template("basket_summary_report.html", data=[], baskets=[], schools=unique_schools, programs=unique_programs, branches=unique_branches)
+            return render_template(
+                "basket_summary_report.html",
+                data=[],
+                baskets=[],
+                basket_max={},
+                total_max=0,
+                schools=unique_schools,
+                programs=unique_programs,
+                branches=unique_branches,
+                schoolBranchMap=school_branch_map,
+                schoolProgramMap=school_program_map
+            )
 
     # GET method → clear old session cache
     session.pop("basket_summary_data", None)
     session.pop("basket_labels", None)
-    return render_template("basket_summary_report.html",
-                           data=[],
-                           baskets=[],
-                           schools=unique_schools,
-                           programs=unique_programs,
-                           branches=unique_branches)
+    return render_template(
+        "basket_summary_report.html",
+        data=[],
+        baskets=[],
+        basket_max={},
+        total_max=0,
+        schools=unique_schools,
+        programs=unique_programs,
+        branches=unique_branches,
+        schoolBranchMap=school_branch_map,
+        schoolProgramMap=school_program_map
+    )
 
 @app.route("/download_basket_excel")
 def download_basket_excel():
+    BASKET_CREDIT_REQUIREMENTS = {
+        "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
+                  "Basket IV": 58, "Basket V": 48, "Total": 160},
+        "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
+                          "Basket IV": 58, "Basket V": 68, "Total": 180},
+        "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12,
+                "Basket IV": 12, "Basket V": 4, "Total": 120},
+        "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20,
+                   "Basket IV": 96, "Basket V": 20, "Total": 172}
+    }
+
     data = session.get("basket_summary_data", [])
     baskets = session.get("basket_labels", [])
 
     if not data:
         return "No data to export", 400
 
-    # Convert to DataFrame
+    # Detect program from the first student's branch/program
+    program = session.get("program") or data[0].get("program") or "Btech"
+    basket_max_map = BASKET_CREDIT_REQUIREMENTS.get(program, {})
+    total_max = basket_max_map.get("Total", 0)
+
+    # --- Build rows ---
     rows = []
     for idx, student in enumerate(data, 1):
         row = {
             "Sl.No": idx,
-            "Name": student["name"],
-            "Registration No": student["reg_no"],
-            "Department": student["branch"],
+            "Name": student.get("name", ""),
+            "Registration No": student.get("reg_no", ""),
+            "Department": student.get("branch", ""),
         }
-        for basket in baskets:
-            row[basket] = student["baskets"].get(basket, 0)
-        row["Total Credits"] = student["total"]
-        row["Backlog Credits"] = student["backlog_credits"]
+
+        for b in baskets:
+            row[b] = student.get("baskets", {}).get(b, 0)
+
+        total_earned = student.get("total", 0)
+        backlog = student.get("backlog_credits", 0)
+
+        if "pending_credits" in student:
+            pending = student["pending_credits"]
+        elif total_max:
+            pending = max(total_max - float(total_earned), 0)
+        else:
+            pending = float(total_earned) - float(backlog)
+
+        row["Total Credits"] = total_earned
+        row["Pending Credits"] = pending
+        row["Backlog Credits"] = backlog
         rows.append(row)
 
     df = pd.DataFrame(rows)
 
+   # --- Write Excel with 2 header rows ---
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="Basket Summary")
+        sheet_name = "Basket Summary"
+
+        # ❌ Don't write column headers here
+        df.to_excel(writer, index=False, header=False, sheet_name=sheet_name, startrow=2)
+
+        ws = writer.sheets[sheet_name]
+
+        from openpyxl.styles import Alignment, Font
+        header_font = Font(bold=True)
+
+        headers = list(df.columns)
+
+        # ✅ Row 1: column titles
+        for col_idx, col_name in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=col_name)
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        # ✅ Row 2: max credits row
+        for col_idx, col_name in enumerate(headers, 1):
+            max_val = ""
+            if col_name in baskets:
+                max_val = f"Max: {basket_max_map.get(col_name, '-')}"
+            elif col_name == "Total Credits":
+                max_val = f"Max: {total_max if total_max else '-'}"
+
+            ws.cell(row=2, column=col_idx, value=max_val).alignment = Alignment(
+                horizontal="center", vertical="center"
+            )
+
+        # Adjust formatting
+        ws.row_dimensions[1].height = 22
+        ws.row_dimensions[2].height = 18
+        ws.freeze_panes = "A3"
+
+        # Auto column width
+        for col in ws.columns:
+            max_len = 0
+            col_letter = col[0].column_letter
+            for c in col:
+                if c.value:
+                    max_len = max(max_len, len(str(c.value)))
+            ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
 
     output.seek(0)
-    response = make_response(output.read())
-    response.headers["Content-Disposition"] = "attachment; filename=basket_summary.xlsx"
-    response.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    return response
+    resp = make_response(output.read())
+    resp.headers["Content-Disposition"] = "attachment; filename=basket_summary.xlsx"
+    resp.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return resp
 
 @app.route("/download_basket_pdf")
 def download_basket_pdf():

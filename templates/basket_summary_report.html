@@ -24,11 +24,12 @@
       {% endif %}
     {% endwith %}
 
+    <!-- 🔎 Form -->
     <form method="POST" class="card p-4 shadow-sm mb-4">
       <div class="row g-3">
         <div class="col-md-3">
           <label class="form-label"><strong>School</strong></label>
-          <select name="school" class="form-select" required>
+          <select id="schoolSelect" name="school" class="form-select" required>
             <option value="">Select School</option>
             {% for s in schools %}
               <option value="{{ s }}">{{ s }}</option>
@@ -37,7 +38,7 @@
         </div>
         <div class="col-md-3">
           <label class="form-label"><strong>Program</strong></label>
-          <select name="program" class="form-select" required>
+          <select id="programSelect" name="program" class="form-select" required>
             <option value="">Select Program</option>
             {% for p in programs %}
               <option value="{{ p }}">{{ p }}</option>
@@ -46,7 +47,7 @@
         </div>
         <div class="col-md-3">
           <label class="form-label"><strong>Branch</strong></label>
-          <select name="branch" class="form-select" required>
+          <select id="branchSelect" name="branch" class="form-select" required>
             <option value="">Select Branch</option>
             {% for b in branches %}
               <option value="{{ b }}">{{ b }}</option>
@@ -66,6 +67,8 @@
         </div>
       </div>
     </form>
+
+    <!-- 📥 Download options -->
     {% if data %}
     <div class="d-flex justify-content-end mb-2">
       <div class="dropdown">
@@ -78,8 +81,9 @@
         </ul>
       </div>
     </div>
-{% endif %}
-   
+    {% endif %}
+
+    <!-- 📊 Report Table -->
     {% if data %}
     <div class="table-responsive">
       <table class="table table-bordered table-sm align-middle">
@@ -90,9 +94,16 @@
             <th>Registration No</th>
             <th>Department</th>
             {% for basket in baskets %}
-              <th>{{ basket }}</th>
+              <th>
+                {{ basket }} <br>
+                <small class="text-muted">Max: {{ basket_max.get(basket, '-') }}</small>
+              </th>
             {% endfor %}
-            <th>Total Credits</th>
+            <th>
+              Total Credits <br>
+              <small class="text-muted">Max: {{ total_max }}</small>
+            </th>
+            <th>Pending Credits</th> <!-- ✅ New Column -->
             <th>Backlog Credits</th>
           </tr>
         </thead>
@@ -107,6 +118,7 @@
               <td class="text-center">{{ student.baskets.get(basket, 0) }}</td>
             {% endfor %}
             <td class="text-center">{{ student.total }}</td>
+            <td class="text-center text-warning">{{ student.pending_credits }}</td> <!-- ✅ New Field -->
             <td class="text-center text-danger">{{ student.backlog_credits }}</td>
           </tr>
           {% endfor %}
@@ -117,5 +129,41 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  
+  <script>
+    // Dynamic dropdown logic
+    const schoolBranchMap = {{ schoolBranchMap|tojson }};
+    const schoolProgramMap = {{ schoolProgramMap|tojson }};
+    
+    const schoolSelect = document.getElementById('schoolSelect');
+    const branchSelect = document.getElementById('branchSelect');
+    const programSelect = document.getElementById('programSelect');
+
+    schoolSelect.addEventListener('change', () => {
+      const selectedSchool = schoolSelect.value;
+
+      // Update branches
+      branchSelect.innerHTML = '<option value="">Select Branch</option>';
+      if (selectedSchool in schoolBranchMap) {
+        schoolBranchMap[selectedSchool].forEach(branch => {
+          const opt = document.createElement('option');
+          opt.value = branch;
+          opt.text = branch;
+          branchSelect.appendChild(opt);
+        });
+      }
+
+      // Update programs
+      programSelect.innerHTML = '<option value="">Select Program</option>';
+      if (selectedSchool in schoolProgramMap) {
+        schoolProgramMap[selectedSchool].forEach(prog => {
+          const opt = document.createElement('option');
+          opt.value = prog;
+          opt.text = prog;
+          programSelect.appendChild(opt);
+        });
+      }
+    });
+  </script>
 </body>
 </html>
