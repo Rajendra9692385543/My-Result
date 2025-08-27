@@ -1,9 +1,8 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response
+from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response,  make_response, send_file
 import os, io, re
 from io import BytesIO
 import pandas as pd
 from supabase import create_client, Client
-from flask import make_response, send_file
 from reportlab.lib.pagesizes import landscape, A4, letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -46,27 +45,27 @@ def serve_uploaded_file(filename):
 # School → Branch Mapping
 # ==========================
 school_branch_map = {
-    "School of Engineering and Technology": [
-        "Computer Science and Engineering",
-        "Mechanical Engineering",
-        "Electrical and Electronics Engineering",
-        "Civil Engineering",
-        "Agricultural Engineering",
-        "Biotechnology Engineering",
-        "Aerospace Engineering",
-        "Bachelor of Computer Application (BCA)"
-    ],
-    "M.S. Swaminathan School of Agriculture": [
-        "Agronomy", "Horticulture", "Soil Science"
-    ],
-    "School of Management": ["BBA", "MBA"],
-    "School of Fisheries": ["Fisheries Science"],
-    "School of Vocational Education and Training": ["Vocational Training"],
-    "School of Applied Sciences": ["Physics", "Chemistry", "Mathematics"],
-    "School of Agriculture & Bio-Engineering": ["Bio-Engineering"],
-    "School of Veterinary and Animal Sciences": ["Veterinary Science"],
-    "School of Nursing": ["Nursing"]
-}
+        "School of Engineering and Technology": [
+            "Computer Science and Engineering",
+            "Mechanical Engineering",
+            "Electrical and Electronics Engineering",
+            "Civil Engineering",
+            "Agricultural Engineering",
+            "Biotechnology Engineering",
+            "Aerospace Engineering",
+            "Bachelor of Computer Application (BCA)"
+        ],
+        "M.S. Swaminathan School of Agriculture": [
+            "Agronomy", "Horticulture", "Soil Science"
+        ],
+        "School of Management": ["BBA", "MBA"],
+        "School of Fisheries": ["Fisheries Science"],
+        "School of Vocational Education and Training": ["Vocational Training"],
+        "School of Applied Sciences": ["Physics", "Chemistry", "Mathematics"],
+        "School of Agriculture & Bio-Engineering": ["Bio-Engineering"],
+        "School of Veterinary and Animal Sciences": ["Veterinary Science"],
+        "School of Nursing": ["Nursing"]
+    }
 
 # ==========================
 # School → Program Mapping
@@ -81,8 +80,7 @@ school_program_map = {
     "School of Agriculture & Bio-Engineering": ["BTech Bio", "BSc Bio"],
     "School of Veterinary and Animal Sciences": ["BVSc"],
     "School of Nursing": ["BSc Nursing"]
-}
-
+    }
 # ==========================
 # Helpers
 # ==========================
@@ -103,8 +101,62 @@ def calculate_gpa(records):
             continue
     return round(weighted_points / total_credits, 2) if total_credits else 0.0
 
+def generate_academic_years(start_year=2020):
+    current_year = datetime.now().year
+    # Include next academic year if past June
+    if datetime.now().month > 6:
+        current_year += 1
+    return [f"{y}-{y + 1}" for y in range(start_year, current_year)]
+
+def roman_to_int(roman):
+        return {"I":1,"II":2,"III":3,"IV":4,"V":5}.get(roman.upper(),None)
+
+def basket_order_key(basket_name):
+    parts = basket_name.strip().split()
+    if len(parts) > 1:
+        roman = parts[-1]
+        if roman.isdigit(): return int(roman)
+        val = roman_to_int(roman)
+        if val: return val
+    return 999
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# ==========================
+# BASKET_CREDIT_REQUIREMENTS
+# ==========================
+
+BASKET_CREDIT_REQUIREMENTS = {
+        "Btech": {
+            "Basket I": 17, "Basket II": 12, "Basket III": 25,
+            "Basket IV": 58, "Basket V": 48, "Total": 160
+        },
+        "Btech Honours": {
+            "Basket I": 17, "Basket II": 12, "Basket III": 25,
+            "Basket IV": 58, "Basket V": 68, "Total": 180
+        },
+        "Bba": {
+            "Basket I": 60, "Basket II": 32, "Basket III": 12,
+            "Basket IV": 12, "Basket V": 4, "Total": 120
+        },
+        "Bsc Ag": {
+            "Basket I": 18, "Basket II": 18, "Basket III": 20,
+            "Basket IV": 96, "Basket V": 20, "Total": 172
+        }
+    }
+
+# ✅ Define required credits based on program
+PROGRAM_CREDIT_REQUIREMENTS = {
+    "BTech": 160,
+    "Btech": 160,
+    "BTech Honours": 180,
+    "Btech Honours": 180,
+    "BBA": 120,
+    "Bba": 120,
+    "BSc Ag": 172,
+    "Bsc Ag": 172
+    }
 
 # ==========================
 # Routes
@@ -519,45 +571,6 @@ def add_subject():
 
     return redirect(url_for('manage_basket'))
 
-@app.route('/admin/update-subject', methods=['POST'])
-def update_subject():
-    if 'admin' not in session:
-        return redirect(url_for('admin_login'))
-
-    subject_code = request.form.get("subject_code", "").strip().upper()
-    if not subject_code:
-        flash("Subject code is required for update.")
-        return redirect(url_for('manage_basket'))
-
-    updates = {}
-    if request.form.get("subject_name"):
-        updates["subject_name"] = request.form["subject_name"].strip()
-    if request.form.get("credits"):
-        try:
-            updates["credits"] = float(request.form["credits"])
-        except:
-            flash("Invalid credits.")
-            return redirect(url_for('manage_basket'))
-    if request.form.get("basket"):
-        updates["basket"] = request.form["basket"].strip()
-
-    if not updates:
-        flash("No updates provided.")
-        return redirect(url_for('manage_basket'))
-
-    try:
-        exists = supabase.table("cbcs_basket").select("id").eq("subject_code", subject_code).execute()
-        if not exists.data:
-            flash("❌ Subject not found.")
-        else:
-            subject_id = exists.data[0]["id"]
-            supabase.table("cbcs_basket").update(updates).eq("id", subject_id).execute()
-            flash(f"✅ Subject '{subject_code}' updated.")
-    except Exception as e:
-        flash(f"❌ Failed to update subject: {e}")
-
-    return redirect(url_for('manage_basket'))
-
 @app.route('/admin/upload-subjects', methods=['POST'])
 def upload_subjects():
     if 'admin' not in session:
@@ -621,58 +634,10 @@ def admin_logout():
     flash("You have been logged out.")
     return redirect(url_for('admin_login'))
 
-def generate_academic_years(start_year=2020):
-    current_year = datetime.now().year
-    # Include next academic year if past June
-    if datetime.now().month > 6:
-        current_year += 1
-    return [f"{y}-{y + 1}" for y in range(start_year, current_year)]
-
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if 'admin' not in session:
         return redirect(url_for('admin_login'))
-
-    # ==========================
-    # School → Branch Mapping
-    # ==========================
-    school_branch_map = {
-        "School of Engineering and Technology": [
-            "Computer Science and Engineering",
-            "Mechanical Engineering",
-            "Electrical and Electronics Engineering",
-            "Civil Engineering",
-            "Agricultural Engineering",
-            "Biotechnology Engineering",
-            "Aerospace Engineering",
-            "Bachelor of Computer Application (BCA)"
-        ],
-        "M.S. Swaminathan School of Agriculture": [
-            "Agronomy", "Horticulture", "Soil Science"
-        ],
-        "School of Management": ["BBA", "MBA"],
-        "School of Fisheries": ["Fisheries Science"],
-        "School of Vocational Education and Training": ["Vocational Training"],
-        "School of Applied Sciences": ["Physics", "Chemistry", "Mathematics"],
-        "School of Agriculture & Bio-Engineering": ["Bio-Engineering"],
-        "School of Veterinary and Animal Sciences": ["Veterinary Science"],
-        "School of Nursing": ["Nursing"]
-    }
-
-    # ==========================
-    # School → Program Mapping
-    # ==========================
-    school_program_map = {
-        "School of Engineering and Technology": ["BTech", "BCA", "Diploma"],
-        "M.S. Swaminathan School of Agriculture": ["BSc AG"],
-        "School of Management": ["BBA", "MBA"],
-        "School of Fisheries": ["BSc Fisheries"],
-        "School of Vocational Education and Training": ["Diploma"],
-        "School of Applied Sciences": ["BSc"],
-        "School of Agriculture & Bio-Engineering": ["BTech Bio", "BSc Bio"],
-        "School of Veterinary and Animal Sciences": ["BVSc"],
-        "School of Nursing": ["BSc Nursing"]
-    }
 
     # ✅ Academic years list
     academic_years = generate_academic_years()
@@ -930,18 +895,6 @@ def view_credits():
         "cgpa": "-",  # You can calculate if needed
     }
 
-    # ✅ Define required credits based on program
-    PROGRAM_CREDIT_REQUIREMENTS = {
-        "BTech": 160,
-        "Btech": 160,
-        "BTech Honours": 180,
-        "Btech Honours": 180,
-        "BBA": 120,
-        "Bba": 120,
-        "BSc Ag": 172,
-        "Bsc Ag": 172
-    }
-
     program_key = student["program"].strip().title()
     required_credits = PROGRAM_CREDIT_REQUIREMENTS.get(program_key, 160)  # Default: 160
 
@@ -1020,12 +973,6 @@ def download_semester_cards():
         "cgpa": "-",
     }
 
-    PROGRAM_CREDIT_REQUIREMENTS = {
-        "BTech": 160, "Btech": 160,
-        "BTech Honours": 180, "Btech Honours": 180,
-        "BBA": 120, "Bba": 120,
-        "BSc Ag": 172, "Bsc Ag": 172
-    }
     program_key = student["program"].strip().title()
     required_credits = PROGRAM_CREDIT_REQUIREMENTS.get(program_key, 160)
 
@@ -1371,12 +1318,6 @@ def credit_report(reg_no):
     branch = student_info["branch"].strip().lower().replace(" ", "")
 
     # --- CBCS Basket Credit Requirements ---
-    BASKET_CREDIT_REQUIREMENTS = {
-        "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 48, "Total": 160},
-        "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 68, "Total": 180},
-        "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12, "Basket IV": 12, "Basket V": 4, "Total": 120},
-        "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20, "Basket IV": 96, "Basket V": 20, "Total": 172}
-    }
     basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
 
     # --- Fetch CBCS basket mapping ---
@@ -1540,18 +1481,6 @@ def credit_report(reg_no):
             sem_counter += 1
 
     # --- Sort baskets ---
-    def roman_to_int(roman):
-        return {"I":1,"II":2,"III":3,"IV":4,"V":5}.get(roman.upper(),None)
-
-    def basket_order_key(basket_name):
-        parts = basket_name.strip().split()
-        if len(parts) > 1:
-            roman = parts[-1]
-            if roman.isdigit(): return int(roman)
-            val = roman_to_int(roman)
-            if val: return val
-        return 999
-
     sorted_baskets = dict(sorted(baskets.items(), key=lambda x: basket_order_key(x[0])))
 
     # --- Prepare data for template ---
@@ -1595,12 +1524,6 @@ def prepare_credit_report_data(reg_no):
     branch = student_info["branch"].strip().lower().replace(" ", "")
 
     # --- CBCS Basket Mapping ---
-    BASKET_CREDIT_REQUIREMENTS = {
-        "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 48, "Total": 160},
-        "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25, "Basket IV": 58, "Basket V": 68, "Total": 180},
-        "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12, "Basket IV": 12, "Basket V": 4, "Total": 120},
-        "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20, "Basket IV": 96, "Basket V": 20, "Total": 172}
-    }
     basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program, {})
 
     cbcs_resp = supabase.table("cbcs_basket").select("*").execute()
@@ -1757,7 +1680,6 @@ def download_credit_report(reg_no):
     elements.append(Paragraph("PARALAKHEMUNDI CAMPUS", style_subsubheader))
     elements.append(Spacer(1, 12))
 
-
     # --- Student Info ---
     info_data = [
         ["Name", data['student_info']['name']],
@@ -1845,11 +1767,6 @@ def download_credit_report(reg_no):
     buffer.seek(0)
 
     return send_file(buffer, as_attachment=True, download_name=f"Credit_Report_{reg_no}.pdf", mimetype='application/pdf')
-
-import io
-from flask import send_file
-from openpyxl import Workbook
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 @app.route("/credit-report/<reg_no>/download_excel")
 def download_credit_report_excel(reg_no):
@@ -2047,25 +1964,6 @@ def view_basket_subjects():
     branch = student["branch"].strip().lower().replace(" ", "") if student["branch"] else "all"
 
     # ✅ Basket Credit Requirements
-    BASKET_CREDIT_REQUIREMENTS = {
-        "Btech": {
-            "Basket I": 17, "Basket II": 12, "Basket III": 25,
-            "Basket IV": 58, "Basket V": 48, "Total": 160
-        },
-        "Btech Honours": {
-            "Basket I": 17, "Basket II": 12, "Basket III": 25,
-            "Basket IV": 58, "Basket V": 68, "Total": 180
-        },
-        "Bba": {
-            "Basket I": 60, "Basket II": 32, "Basket III": 12,
-            "Basket IV": 12, "Basket V": 4, "Total": 120
-        },
-        "Bsc Ag": {
-            "Basket I": 18, "Basket II": 18, "Basket III": 20,
-            "Basket IV": 96, "Basket V": 20, "Total": 172
-        }
-    }
-
     basket_requirements = BASKET_CREDIT_REQUIREMENTS.get(program.title(), {})
 
     # ✅ Fetch CBCS data
@@ -2146,26 +2044,7 @@ def view_basket_subjects():
     if unmatched > 0:
         flash(f"{unmatched} subject(s) did not match any CBCS basket mapping and were ignored.", "info")
     
-    # ✅ Roman numeral to integer helper (properly indented inside function)
-    def roman_to_int(roman):
-        roman_map = {
-            "I": 1, "II": 2, "III": 3, "IV": 4, "V": 5,
-            "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10
-        }
-        return roman_map.get(roman.upper(), None)
-
-    # ✅ Sort baskets (works for both Roman & numeric)
-    def basket_order_key(basket_name):
-        parts = basket_name.strip().split()
-        if len(parts) > 1:
-            roman_or_num = parts[-1]
-            if roman_or_num.isdigit():
-                return int(roman_or_num)
-            val = roman_to_int(roman_or_num)
-            if val:
-                return val
-        return 999
-
+    # Helper to sort baskets
     sorted_baskets = dict(sorted(baskets.items(), key=lambda x: basket_order_key(x[0])))
 
     return render_template(
@@ -2234,20 +2113,6 @@ def download_subject_excel(reg_no):
         baskets.setdefault(basket, []).append(sub_data)
         if row.get("grade", "").upper() in ["F", "S"]:
             all_backlogs.append(sub_data)
-
-    # ✅ Helpers
-    def roman_to_int(roman):
-        roman_map = {"I":1,"II":2,"III":3,"IV":4,"V":5,"VI":6,"VII":7,"VIII":8,"IX":9,"X":10}
-        return roman_map.get(roman.upper(), None)
-
-    def basket_order_key(basket_name):
-        match = re.search(r'(?:Basket\s*)([IVXLCDM]+|\d+)$', basket_name.strip(), re.IGNORECASE)
-        if match:
-            val = match.group(1)
-            if val.isdigit(): return int(val)
-            roman_val = roman_to_int(val.upper())
-            if roman_val: return roman_val
-        return 0
 
     # 🔹 Generate Excel
     output = io.BytesIO()
@@ -2392,20 +2257,6 @@ def download_subject_pdf(reg_no):
         baskets.setdefault(basket, []).append(sub_data)
         if row.get("grade", "").upper() in ["F", "S"]:
             all_backlogs.append(sub_data)
-
-    # ✅ Helpers for basket sorting
-    def roman_to_int(roman):
-        roman_map = {"I":1,"II":2,"III":3,"IV":4,"V":5,"VI":6,"VII":7,"VIII":8,"IX":9,"X":10}
-        return roman_map.get(roman.upper(), None)
-
-    def basket_order_key(basket_name):
-        match = re.search(r'(?:Basket\s*)([IVXLCDM]+|\d+)$', basket_name.strip(), re.IGNORECASE)
-        if match:
-            val = match.group(1)
-            if val.isdigit(): return int(val)
-            roman_val = roman_to_int(val.upper())
-            if roman_val: return roman_val
-        return 0
 
     # 🔹 PDF Setup
     buffer = io.BytesIO()
@@ -2584,16 +2435,6 @@ def basket_summary_report():
                     })
 
             # ✅ Basket Requirement Map
-            BASKET_CREDIT_REQUIREMENTS = {
-                "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
-                          "Basket IV": 58, "Basket V": 48, "Total": 160},
-                "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
-                                  "Basket IV": 58, "Basket V": 68, "Total": 180},
-                "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12,
-                        "Basket IV": 12, "Basket V": 4, "Total": 120},
-                "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20,
-                           "Basket IV": 96, "Basket V": 20, "Total": 172}
-            }
             program_reqs = BASKET_CREDIT_REQUIREMENTS.get(program.title(), {})
             basket_labels = list(program_reqs.keys())[:-1]  # Exclude 'Total'
 
@@ -2724,16 +2565,6 @@ def basket_summary_report():
 
 @app.route("/download_basket_excel")
 def download_basket_excel():
-    BASKET_CREDIT_REQUIREMENTS = {
-        "Btech": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
-                  "Basket IV": 58, "Basket V": 48, "Total": 160},
-        "Btech Honours": {"Basket I": 17, "Basket II": 12, "Basket III": 25,
-                          "Basket IV": 58, "Basket V": 68, "Total": 180},
-        "Bba": {"Basket I": 60, "Basket II": 32, "Basket III": 12,
-                "Basket IV": 12, "Basket V": 4, "Total": 120},
-        "Bsc Ag": {"Basket I": 18, "Basket II": 18, "Basket III": 20,
-                   "Basket IV": 96, "Basket V": 20, "Total": 172}
-    }
 
     data = session.get("basket_summary_data", [])
     baskets = session.get("basket_labels", [])
