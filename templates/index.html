@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="google-site-verification" content="q-hS7EvYlKe6V0IjU8-3GiB0jE1Pq_hvW_mga1Fpfp0" />
-  <title>My Result Portal</title>
+  <title>My Result Portal-CUTM</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   
   <!-- Bootstrap 5 -->
@@ -12,15 +12,15 @@
 
   <!-- Basic SEO Meta Tags -->
 <meta name="description" content="Access Centurion University results online with My-Result Portal. Students can view subject-wise marks, SGPA, CGPA, track academic progress, and use the credit tracker.">
-<meta name="keywords" content="CUTM myresult portal, CUTM result, CUTM exam result, Centurion University result, CUTM student portal, My-Result CUTM, CUTM online result, CUTM SGPA, CUTM CGPA, CUTM credit tracker, My Result credit tracker, CUTM marks tracker, CUTM academic credit system">
+<meta name="keywords" content="CUTM myresult portal, CUTM my result portal, CUTM My Result Portal, my result rajendra, CUTM exam result, Centurion University result, CUTM student portal, My-Result CUTM, My Result CUTM, CUTM online result, CUTM SGPA, CUTM CGPA, CUTM credit tracker, My Result credit tracker, CUTM marks tracker, CUTM academic credit system">
 <meta name="robots" content="index, follow">
-<link rel="canonical" href="https://my-result.onrender.com/">
+<link rel="canonical" href="https://my-result.onrender.com">
 
 <!-- Open Graph Meta Tags -->
 <meta property="og:title" content="My-Result Portal - CUTM Results Online" />
 <meta property="og:description" content="Check CUTM exam results instantly. My-Result Portal provides SGPA, CGPA, credit tracking, and subject-wise performance with easy access to academic records." />
 <meta property="og:image" content="{{ url_for('static', filename='favhome.png') }}" />
-<meta property="og:url" content="https://my-result.onrender.com/" />
+<meta property="og:url" content="https://my-result.onrender.com" />
 <meta property="og:type" content="website" />
 
 <!-- Twitter Card Meta Tags -->
@@ -35,6 +35,22 @@
 <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
 
   <style>
+   html {
+  position: relative;
+  min-height: 100%;
+}
+
+body {
+  margin: 0 0 100px 0; /* bottom margin same as footer height */
+}
+
+footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+}
+
     .form-card {
       max-width: 500px;
       margin: auto;
@@ -197,7 +213,7 @@
 <!-- Result Form -->
 <div class="form-card">
   <div class="card p-4 shadow-sm rounded-4 border-0">
-    <h4 class="text-center mb-4">Check Your Result</h4>
+    <h4 class="text-center mb-4">Check Your Result </h4>
     <form action="/result" method="post">
       <div class="mb-3">
         <label for="reg_no" class="form-label">Registration Number</label>
@@ -235,6 +251,9 @@
       </a>
     </p>
   </div>
+  <h8 class="text-center mt-4 mb-3">
+CUTM Exam Results | SGPA | CGPA | & Credit Tracker
+</h8>
 </footer>
 
 <!-- Semester Fetch JS -->
