@@ -491,8 +491,11 @@ def manage_basket():
 
         if selected_program:
             query = query.eq("program", selected_program)
+
         if selected_branch:
-            query = query.eq("branch", selected_branch)
+            # Include subjects where branch matches or branch = 'all'
+            query = query.in_("branch", [selected_branch, "all"])
+
         if selected_basket:
             query = query.eq("basket", selected_basket)
 
@@ -503,23 +506,27 @@ def manage_basket():
         subjects = []
         flash(f"❌ Failed to load subjects: {e}")
 
-    # Distinct values for dropdowns
+    # Get distinct values for dropdowns (programs, branches, baskets)
     try:
         all_subjects = supabase.table("cbcs_basket").select("program, branch, basket").execute().data
-        programs = sorted({row["program"] for row in all_subjects if row["program"]})
-        branches = sorted({row["branch"] for row in all_subjects if row["branch"]})
-        baskets = sorted({row["basket"] for row in all_subjects if row["basket"]})
-    except:
+        programs = sorted({row["program"] for row in all_subjects if row.get("program")})
+        branches = sorted({row["branch"] for row in all_subjects if row.get("branch")})
+        baskets = sorted({row["basket"] for row in all_subjects if row.get("basket")})
+    except Exception as e:
         programs, branches, baskets = [], [], []
 
-    return render_template("manage_basket.html",
-                           subjects=subjects,
-                           programs=programs,
-                           branches=branches,
-                           baskets=baskets,
-                           selected_program=selected_program,
-                           selected_branch=selected_branch,
-                           selected_basket=selected_basket)
+    return render_template(
+        "manage_basket.html",
+        subjects=subjects,
+        programs=programs,
+        branches=branches,
+        baskets=baskets,
+        selected_program=selected_program,
+        selected_branch=selected_branch,
+        selected_basket=selected_basket,
+        school_branch_map=school_branch_map,
+        school_program_map=school_program_map
+    )
 
 @app.route('/admin/add-subject', methods=['POST'])
 def add_subject():
