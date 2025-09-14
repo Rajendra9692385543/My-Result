@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, flash, send_from_directory, Response,  make_response, send_file
 import os, io, re
+from dotenv import load_dotenv
 from io import BytesIO
 import pandas as pd
 from supabase import create_client, Client
@@ -19,8 +20,11 @@ from openpyxl.utils import get_column_letter
 # ==========================
 # Supabase Config
 # ==========================
-SUPABASE_URL = "https://xsnktkaofijftripytij.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzbmt0a2FvZmlqZnRyaXB5dGlqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTI2NDM2MDAsImV4cCI6MjA2ODIxOTYwMH0.NKo7WAeN7ssRg_5LceDABBaUJF-jAEjxBrCjKtoxvgg"
+# Load .env file
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 

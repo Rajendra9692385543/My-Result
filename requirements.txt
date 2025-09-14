@@ -7,3 +7,4 @@ supabase
 markdown2
 reportlab
 xlsxwriter
+dotenv
