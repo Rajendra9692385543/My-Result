@@ -2565,94 +2565,260 @@ def basket_summary_report():
 
 @app.route("/download_basket_excel")
 def download_basket_excel():
-
     data = session.get("basket_summary_data", [])
     baskets = session.get("basket_labels", [])
 
     if not data:
         return "No data to export", 400
 
-    # Detect program from the first student's branch/program
+    # Detect program/school/branch from session or fallback to first row
     program = session.get("program") or data[0].get("program") or "Btech"
+    school = session.get("school") or data[0].get("school", "")
+    branch = session.get("branch") or data[0].get("branch", "")
     basket_max_map = BASKET_CREDIT_REQUIREMENTS.get(program, {})
     total_max = basket_max_map.get("Total", 0)
 
-    # --- Build rows ---
+    # Try to get start/end reg from session if present, otherwise derive from data
+    start_reg = session.get("start_reg")
+    end_reg = session.get("end_reg")
+    if not start_reg or not end_reg:
+        regs = [str(s.get("reg_no", "")).strip() for s in data if s.get("reg_no")]
+        # Try numeric parsing for reliable min/max
+        def parse_reg_num(r):
+            digits = "".join(ch for ch in r if ch.isdigit())
+            return int(digits) if digits else None
+        parsed = [(r, parse_reg_num(r)) for r in regs]
+        nums = [p for (_, p) in parsed if p is not None]
+        if nums:
+            start_reg = str(min(nums))
+            end_reg = str(max(nums))
+        else:
+            # fallback to first and last in the provided data order
+            start_reg = regs[0] if regs else ""
+            end_reg = regs[-1] if regs else ""
+
+    # --- Build rows (order: Sl.No, Registration No, Name, Department, [baskets -> earned,max], Total Earned, Total Max, Pending, Backlog) ---
     rows = []
     for idx, student in enumerate(data, 1):
-        row = {
-            "Sl.No": idx,
-            "Name": student.get("name", ""),
-            "Registration No": student.get("reg_no", ""),
-            "Department": student.get("branch", ""),
-        }
+        reg_no = student.get("reg_no", "")
+        name = student.get("name", "")
+        dept = student.get("branch", "")
 
+        row = [
+            idx,
+            reg_no,
+            name,
+            dept,
+        ]
+
+        # Basket earned + max
         for b in baskets:
-            row[b] = student.get("baskets", {}).get(b, 0)
+            earned = student.get("baskets", {}).get(b, 0)
+            max_val = basket_max_map.get(b, "-")
+            row.extend([earned, max_val])
 
+        # Total earned + max
         total_earned = student.get("total", 0)
-        backlog = student.get("backlog_credits", 0)
+        row.extend([total_earned, total_max if total_max else "-"])
 
+        # Pending & Backlog
+        backlog = student.get("backlog_credits", 0)
         if "pending_credits" in student:
             pending = student["pending_credits"]
         elif total_max:
-            pending = max(total_max - float(total_earned), 0)
+            try:
+                pending = max(total_max - float(total_earned), 0)
+            except Exception:
+                pending = ""
         else:
-            pending = float(total_earned) - float(backlog)
+            try:
+                pending = float(total_earned) - float(backlog)
+            except Exception:
+                pending = ""
 
-        row["Total Credits"] = total_earned
-        row["Pending Credits"] = pending
-        row["Backlog Credits"] = backlog
+        row.extend([pending, backlog])
         rows.append(row)
 
-    df = pd.DataFrame(rows)
-
-   # --- Write Excel with 2 header rows ---
+    # --- Write Excel ---
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         sheet_name = "Basket Summary"
 
-        # ❌ Don't write column headers here
-        df.to_excel(writer, index=False, header=False, sheet_name=sheet_name, startrow=2)
+        # Write data starting at row 7 (Excel row 7) => pandas startrow=6 (0-indexed)
+        pd.DataFrame(rows).to_excel(writer, index=False, header=False, sheet_name=sheet_name, startrow=6)
 
         ws = writer.sheets[sheet_name]
 
-        from openpyxl.styles import Alignment, Font
-        header_font = Font(bold=True)
+        # styles
+        from openpyxl.styles import Alignment, Font, PatternFill
+        header_font = Font(bold=True, color="FFFFFF")
+        title_font = Font(bold=True, size=14)
+        header_fill = PatternFill(start_color="4F81BD", end_color="4F81BD", fill_type="solid")  # blue
+        subheader_fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")  # lighter blue
+        earned_green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        earned_red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        earned_yellow = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+        max_gray = PatternFill(start_color="E7E6E6", end_color="E7E6E6", fill_type="solid")
+        alt_fill = PatternFill(start_color="F2F5FB", end_color="F2F5FB", fill_type="solid")  # subtle stripe
 
-        headers = list(df.columns)
+        # compute total columns: 4 static + 2 * len(baskets) + 2 (total earned/max) + 2 (pending/backlog)
+        total_columns = 4 + (2 * len(baskets)) + 2 + 2
 
-        # ✅ Row 1: column titles
-        for col_idx, col_name in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_idx, value=col_name)
-            cell.font = header_font
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+        # --- Top Info (merged across all columns) ---
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_columns)
+        ws.cell(row=1, column=1, value=f"School: {school}").alignment = Alignment(horizontal="center", vertical="center")
 
-        # ✅ Row 2: max credits row
-        for col_idx, col_name in enumerate(headers, 1):
-            max_val = ""
-            if col_name in baskets:
-                max_val = f"Max: {basket_max_map.get(col_name, '-')}"
-            elif col_name == "Total Credits":
-                max_val = f"Max: {total_max if total_max else '-'}"
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=total_columns)
+        ws.cell(row=2, column=1, value=f"Program: {program}").alignment = Alignment(horizontal="center", vertical="center")
 
-            ws.cell(row=2, column=col_idx, value=max_val).alignment = Alignment(
-                horizontal="center", vertical="center"
-            )
+        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=total_columns)
+        ws.cell(row=3, column=1, value=f"Branch: {branch}").alignment = Alignment(horizontal="center", vertical="center")
 
-        # Adjust formatting
-        ws.row_dimensions[1].height = 22
-        ws.row_dimensions[2].height = 18
-        ws.freeze_panes = "A3"
+        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=total_columns)
+        ws.cell(row=4, column=1, value=f"Start Reg: {start_reg}    End Reg: {end_reg}").alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(row=4, column=1).font = title_font
 
-        # Auto column width
-        for col in ws.columns:
+        # --- Headers (2-level) placed at rows 5 (group) and 6 (sub) ---
+        col = 1
+        # Sl.No
+        ws.cell(row=5, column=col, value="Sl.No").font = header_font
+        ws.cell(row=5, column=col).fill = header_fill
+        ws.merge_cells(start_row=5, start_column=col, end_row=6, end_column=col)
+        col += 1
+
+        # Registration No
+        ws.cell(row=5, column=col, value="Registration No").font = header_font
+        ws.cell(row=5, column=col).fill = header_fill
+        ws.merge_cells(start_row=5, start_column=col, end_row=6, end_column=col)
+        col += 1
+
+        # Name
+        ws.cell(row=5, column=col, value="Name").font = header_font
+        ws.cell(row=5, column=col).fill = header_fill
+        ws.merge_cells(start_row=5, start_column=col, end_row=6, end_column=col)
+        col += 1
+
+        # Department
+        ws.cell(row=5, column=col, value="Department").font = header_font
+        ws.cell(row=5, column=col).fill = header_fill
+        ws.merge_cells(start_row=5, start_column=col, end_row=6, end_column=col)
+        col += 1
+
+        # Baskets: group header (row 5), subheaders Earned/Max (row 6)
+        for b in baskets:
+            ws.merge_cells(start_row=5, start_column=col, end_row=5, end_column=col + 1)
+            ws.cell(row=5, column=col, value=b).font = header_font
+            ws.cell(row=5, column=col).fill = header_fill
+            ws.cell(row=6, column=col, value="Earned").font = header_font
+            ws.cell(row=6, column=col).fill = subheader_fill
+            ws.cell(row=6, column=col + 1, value="Max").font = header_font
+            ws.cell(row=6, column=col + 1).fill = subheader_fill
+            col += 2
+
+        # Total group
+        ws.merge_cells(start_row=5, start_column=col, end_row=5, end_column=col + 1)
+        ws.cell(row=5, column=col, value="Total").font = header_font
+        ws.cell(row=5, column=col).fill = header_fill
+        ws.cell(row=6, column=col, value="Earned").font = header_font
+        ws.cell(row=6, column=col).fill = subheader_fill
+        ws.cell(row=6, column=col + 1, value="Max").font = header_font
+        ws.cell(row=6, column=col + 1).fill = subheader_fill
+        col += 2
+
+        # Pending & Backlog (single columns spanning rows 5-6)
+        ws.cell(row=5, column=col, value="Pending Credits").font = header_font
+        ws.cell(row=5, column=col).fill = header_fill
+        ws.merge_cells(start_row=5, start_column=col, end_row=6, end_column=col)
+        col += 1
+
+        ws.cell(row=5, column=col, value="Backlog Credits").font = header_font
+        ws.cell(row=5, column=col).fill = header_fill
+        ws.merge_cells(start_row=5, start_column=col, end_row=6, end_column=col)
+
+        # Center align header/info area
+        for r in range(1, 7):
+            for c in range(1, total_columns + 1):
+                ws.cell(row=r, column=c).alignment = Alignment(horizontal="center", vertical="center")
+
+        # --- Color earned/max cells to match web logic and apply gray to max columns ---
+        data_start_row = 7  # where pandas wrote the first data row
+        for row_idx, student in enumerate(rows):
+            excel_row = data_start_row + row_idx
+            # baskets start at column 5
+            for j, b in enumerate(baskets):
+                earned_col = 5 + j * 2
+                max_col = earned_col + 1
+
+                ecell = ws.cell(row=excel_row, column=earned_col)
+                mcell = ws.cell(row=excel_row, column=max_col)
+
+                # attempt numeric comparison
+                try:
+                    e_val = float(ecell.value)
+                except Exception:
+                    e_val = None
+                try:
+                    m_val = float(mcell.value)
+                except Exception:
+                    m_val = None
+
+                # color earned cell
+                if e_val is not None and m_val is not None:
+                    if e_val == m_val:
+                        ecell.fill = earned_green
+                    elif e_val < m_val:
+                        ecell.fill = earned_red
+                    elif e_val > m_val:
+                        ecell.fill = earned_yellow
+
+                # color max cell light gray
+                mcell.fill = max_gray
+
+            # Total earned/max columns
+            total_earned_col = 5 + 2 * len(baskets)
+            total_max_col = total_earned_col + 1
+            tcell = ws.cell(row=excel_row, column=total_earned_col)
+            tmaxcell = ws.cell(row=excel_row, column=total_max_col)
+            try:
+                t_val = float(tcell.value)
+            except Exception:
+                t_val = None
+            try:
+                tm_val = float(tmaxcell.value)
+            except Exception:
+                tm_val = None
+            if t_val is not None and tm_val is not None:
+                if t_val == tm_val:
+                    tcell.fill = earned_green
+                elif t_val < tm_val:
+                    tcell.fill = earned_red
+                elif t_val > tm_val:
+                    tcell.fill = earned_yellow
+            tmaxcell.fill = max_gray
+
+        # --- Alternating (zebra) fill for data rows for readability ---
+        for r in range(data_start_row, data_start_row + len(rows)):
+            if (r - data_start_row) % 2 == 1:
+                for c in range(1, total_columns + 1):
+                    # avoid overwriting earned/max fills already applied
+                    cur = ws.cell(row=r, column=c)
+                    if cur.fill is None or cur.fill == PatternFill():  # only apply if not set
+                        cur.fill = alt_fill
+
+        # --- Center align entire sheet ---
+        for r in range(1, ws.max_row + 1):
+            for c in range(1, total_columns + 1):
+                ws.cell(row=r, column=c).alignment = Alignment(horizontal="center", vertical="center")
+
+        # --- Auto column width, tighter cap ---
+        for col_idx in range(1, total_columns + 1):
+            col_letter = get_column_letter(col_idx)
             max_len = 0
-            col_letter = col[0].column_letter
-            for c in col:
-                if c.value:
-                    max_len = max(max_len, len(str(c.value)))
-            ws.column_dimensions[col_letter].width = min(max_len + 2, 50)
+            for r in range(1, ws.max_row + 1):
+                cell = ws.cell(row=r, column=col_idx)
+                if cell.value:
+                    max_len = max(max_len, len(str(cell.value)))
+            ws.column_dimensions[col_letter].width = min(max(max_len + 2, 6), 20)
 
     output.seek(0)
     resp = make_response(output.read())
