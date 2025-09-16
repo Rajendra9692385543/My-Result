@@ -1,84 +1,167 @@
-# 🎓 MyResult – Student Result & Credit Tracker Portal
-An academic portal to view student results, track credit progress, and manage uploads via admin panel.
 
-# 🚀 Features
-🔍 Student Result Viewer
-Enter registration number and semester to view detailed results.
+# 🎓 MyResult – Student Result & Credit Tracker Portal (v4)
 
-Displays subject-wise marks, grades, SGPA, CGPA, academic year.
+A full-fledged academic portal to **view student results**, **track credits**, and **manage uploads** via a secure admin panel.  
+Version **v4** introduces advanced **credit tracker reports, CBCS basket analysis, result uploads with school/program mapping, and PDF/Excel exports.**
 
-Includes visual CGPA chart across all semesters.
+---
 
-# 📊 Credit Tracker (New Module)
-Track total, cleared, and remaining credits semester-wise.
+## 🚀 Features
 
-Each semester has:
+### 🔍 Student Result Viewer
+- Search by **Registration Number**.
+- Displays **subject-wise marks, grades, SGPA, CGPA**.
+- Visual **SGPA/CGPA charts** across semesters.
+- **Download Reports**:
+  - PDF (Semester-wise styled result card).
+  - Excel (Credit + Backlog summary).
 
-Subject-wise details
+### 📊 Credit Tracker
+- Track **total, cleared, pending, and backlog credits** semester-wise.
+- Visualizations:
+  - Pie chart (cleared vs backlog).
+  - Progress bar for overall completion.
+- Lists **backlog subjects with credit details**.
+- **Basket Summary Report** (CBCS):
+  - Generate basket-wise credit completion for reg_no ranges.
+  - Semester & year-wise breakdown.
+  - Export to **Excel** or **PDF**.
 
-Pie chart visualization (cleared vs backlog)
+### 🔐 Admin Panel
+- **Secure login** (Superadmin & Admin roles).
+- **Result Uploads**:
+  - Regular results: Insert/Update with School, Branch, Program, Semester, Batch.
+  - Re-exam results: Update only (no new rows, existing school/branch untouched).
+- **CBCS Basket Uploads**:
+  - Upload basket-subject mapping via Excel.
+  - Supports School/Branch/Program/Year/Semester filters.
+- **Admin Management** (for Superadmin):
+  - Add new admins.
+  - Delete existing admins.
+- **Upload Logs**:
+  - Filename, details, timestamp.
+  - Status highlighted (🟩 New / 🟨 Updated).
+  - Download links for uploaded files.
 
-Summary view with:
+### 🌐 SEO & Static Pages
+- **Sitemap (`/sitemap.xml`)**: Auto-generates static + student result URLs.
+- **robots.txt**: Blocks sensitive routes, allows indexing of safe routes, includes sitemap link.
+- **Google site verification** endpoint.
+- Static **About Page**.
 
-Total credits required vs completed
+---
 
-Progress bar
+## 🛠️ Tech Stack
 
-Pie chart showing completed, pending, and backlog credits
+| Layer       | Technology             |
+|-------------|------------------------|
+| Frontend    | HTML, Bootstrap 5      |
+| Backend     | Flask (Python)         |
+| Database    | SQLite (via SQLAlchemy)|
+| Data Tools  | Pandas, OpenPyXL, ReportLab |
+| Charts      | Chart.js               |
+| Auth        | Role-based (Admin, Superadmin) |
 
-Displays backlog subjects with credit count.
+---
 
-# 🔐 Admin Panel
-Login-protected admin dashboard
+## 📤 Excel Upload Format (Admin)
 
-Upload results (bulk insert/update) via Excel files
+| Column Name   | Description                        |
+|---------------|------------------------------------|
+| Reg_No        | Student registration number        |
+| Name          | Student name                       |
+| Subject_Code  | Subject code                       |
+| Subject_Name  | Subject name                       |
+| Type          | Theory / Lab / Project             |
+| Credits       | Example: `3` or `3.0+1.0`          |
+| Grade         | Example: A, B, C, F, etc.          |
 
-Metadata logging (school, branch, semester, academic year)
+🔹 **Regular Results** → Adds School, Branch, Program, Semester, Batch automatically.  
+🔹 **Re-exam Results** → Updates only by `reg_no` + `subject_code`.
 
-View upload history and status
+---
 
-# 🛠️ Tech Stack
-Layer	Tech
-Frontend	HTML, Bootstrap 5
-Backend	Flask (Python)
-Database	Supabase (PostgreSQL)
-Charts	Chart.js
-File Upload	Excel (.xlsx via Pandas)
+## 🆕 v4 Updates
 
-# 📤 Excel Upload Format (for admin)
-Column Name	Description
-Reg_No	Student registration no.
-Name	Student name
-Subject_Code	Code of the subject
-Subject_Name	Name of the subject
-Type	Theory/Lab/Project
-Credits	e.g. 3 or 3.0+1.0
-Grade	A, B, C, F, etc.
+- ✅ Added **School, Branch, Program, Semester, Batch** in upload form.  
+- ✅ Support for **Re-exam results** (update-only mode).  
+- ✅ New **Basket Summary Report** with PDF/Excel exports.  
+- ✅ **Admin Dashboard** shows result files table with status (new/update).  
+- ✅ Superadmin can **add/delete admins**.  
+- ✅ Downloadable **PDF & Excel reports** for students and basket analysis.  
+- ✅ SEO enhancements: **sitemap.xml**, **robots.txt**, **about page**.  
+- ✅ Improved credit tracker with backlog subject details.
 
-# 🧪 Admin Login
-Will Setup this will the help of Supabase OTP auth 
+---
 
-# 📈 Credit Calculation Logic
-Total credits = sum of all course credits
+## 📥 Installation
 
-Cleared: if grade not in ['F', 'S']
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/your-username/myresult.git
+   cd myresult
+````
 
-Backlogs: grade is F or S
+2. Create and activate a virtual environment:
 
-Pending: difference between required and (cleared + backlog)
+   ```bash
+   python -m venv venv
+   source venv/bin/activate   # Linux/Mac
+   venv\Scripts\activate      # Windows
+   ```
 
-Pie charts display semester and overall credit status
+3. Install dependencies:
 
-# 💡 Future Enhancements
-Export results as PDF
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-Add re-exam tracking
+4. Run the Flask app:
 
-Student login panel
+   ```bash
+   flask run
+   ```
 
-Dynamic credit requirements based on branch/program
+5. Visit:
 
-# 🧑‍💻 Created By
-Rajendra
-💌 rajendradas5543@gmail.com
-🌐 GitHub: Rajendra9692385543
+   ```
+   http://127.0.0.1:5000/
+   ```
+
+---
+
+## 📈 Credit Calculation Logic
+
+* **Total Credits** = sum of all subjects’ credits.
+* **Cleared Credits** = subjects with grades not in `[F, S]`.
+* **Backlogs** = subjects with grades in `[F, S]`.
+* **Pending Credits** = required - (cleared + backlog).
+* Charts show semester & overall credit status.
+
+---
+
+## 📌 Roadmap
+
+* [ ] Student login portal with personalized dashboards.
+* [ ] Export results as PDF (auto for each student).
+* [ ] Email/SMS notifications for result updates.
+* [ ] Migrate to **Supabase/PostgreSQL** for production scale.
+* [ ] Mobile-friendly progressive web app (PWA).
+
+---
+
+## 📷 Screenshots (To be added)
+
+* Student Result Page (SGPA/CGPA Chart).
+* Credit Tracker with Pie Chart & Progress Bar.
+* Admin Dashboard with Upload Logs.
+* Basket Summary Report (Excel/PDF).
+
+---
+
+## 🧑‍💻 Created By
+
+**Rajendra Das**
+💌 [rajendradas5543@gmail.com](mailto:rajendradas5543@gmail.com)
+🌐 GitHub: [Rajendra9692385543](https://github.com/Rajendra9692385543)
+
