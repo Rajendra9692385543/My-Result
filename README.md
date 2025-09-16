@@ -97,9 +97,9 @@ Version **v4** introduces advanced **credit tracker reports, CBCS basket analysi
 ## 📥 Installation
 
 1. Clone the repo:
-   ```bash
-   git clone https://github.com/your-username/myresult.git
-   cd myresult
+```bash
+   git clone https://github.com/Rajendra9692385543/My-Result.git
+   cd My-Result
 ````
 
 2. Create and activate a virtual environment:
